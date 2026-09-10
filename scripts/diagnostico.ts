@@ -26,12 +26,12 @@ import { planesRepo, adicionalesRepo, getConfiguracion, getDomosYClases } from "
 import { listFaq } from "../src/core/db/faqRepo.js";
 import { getEstado } from "../src/core/db/estadoRepo.js";
 import { listMensajes } from "../src/core/db/mensajesRepo.js";
-import { tools, toolsPostventa, getToolSchemas } from "../src/core/tools/registry.js";
-import { consultarPlanesTool, consultarAdicionalesTool, consultarHorariosTool } from "../src/core/tools/catalogo.js";
-import { preguntasFrecuentesTool } from "../src/core/tools/preguntasFrecuentes.js";
-import { registrarDatosReservaTool } from "../src/core/tools/reserva.js";
+import { herramientasDe, esquemasDeHerramientas } from "../src/agentes/_registro.js";
+import { consultarPlanesTool, consultarAdicionalesTool, consultarHorariosTool } from "../src/agentes/ventas/herramientas/planes.js";
+import { preguntasFrecuentesTool } from "../src/agentes/ventas/herramientas/preguntasFrecuentes.js";
+import { registrarDatosReservaTool } from "../src/agentes/ventas/herramientas/reserva.js";
 import { resolverTipoDocumento, buscarReservasConfirmadasPorCelular } from "../src/core/db/reservasRepo.js";
-import { buscarReservaClienteTool } from "../src/core/tools/postventa.js";
+import { buscarReservaClienteTool } from "../src/agentes/postventa/herramientas/buscarReserva.js";
 import { listCorrecciones, agregarCorreccion, desactivarCorreccion, bloqueDeCorrecciones } from "../src/core/db/correccionesRepo.js";
 import {
   consultarDisponibilidad,
@@ -40,7 +40,7 @@ import {
   estadoUltimaConsultaOficial,
   apiOficialConfigurada,
 } from "../src/core/integrations/lobbypms.js";
-import { consultarFechasAlternativasTool } from "../src/core/tools/disponibilidad.js";
+import { consultarFechasAlternativasTool } from "../src/agentes/ventas/herramientas/disponibilidad.js";
 import {
   crearBloqueo,
   contarBloqueosActivos,
@@ -51,7 +51,7 @@ import {
 import { intentarComando, esNumeroAutorizado, numerosAutorizados, puedeCorregir } from "../src/core/pipeline/comandos.js";
 import { cerrarSesion } from "../src/core/db/sesionesRepo.js";
 import { openrouter, LLM_MODEL, ORCHESTRATOR_MODEL } from "../src/core/llm/openrouter.js";
-import { enrutarMensaje } from "../src/core/orchestrator/route.js";
+import { enrutarMensaje } from "../src/agentes/orquestador/route.js";
 import { handleInbound } from "../src/core/pipeline/runTurn.js";
 import { verifyYCloudSignature } from "../src/channels/whatsapp-ycloud/signature.js";
 import { parseYcloudWebhook } from "../src/channels/whatsapp-ycloud/adapter.js";
@@ -60,6 +60,9 @@ import { getRedisConnection } from "../src/core/queue/redis.js";
 import { getInboundQueue } from "../src/core/queue/inboundQueue.js";
 import { getRecontactoQueue, PASOS_MS, MAX_PASOS, RECONTACTO_HABILITADO } from "../src/core/queue/recontactoQueue.js";
 import { esHorarioNocturno, ajustarPorHorarioNocturno } from "../src/core/lib/horarioNocturno.js";
+
+// [2026-09-10] Las herramientas ahora viven en la carpeta de su agente (src/agentes/<bot>/).
+const tools = await herramientasDe("ventas");
 
 const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
 const REPORTE = path.join(process.cwd(), `diagnostico-${stamp}.txt`);
@@ -249,14 +252,14 @@ async function s4Herramientas(): Promise<void> {
   seccion("4. HERRAMIENTAS — qué ve el modelo y qué devuelve cada una");
   log(`  herramientas REGISTRADAS (las que el modelo puede llamar): ${tools.map((t) => t.name).join(", ") || "(ninguna)"}`);
   try {
-    const schemas = await getToolSchemas();
+    const schemas = await esquemasDeHerramientas(await herramientasDe("ventas"));
     log(`  esquemas enviados al modelo: ${JSON.stringify(schemas.map((s: any) => s.function.name))}`);
   } catch (e) {
     problema(`getToolSchemas falló: ${errTxt(e)}`);
   }
   const menciones = ["consultar_planes", "preguntas_frecuentes", "consultar_adicionales", "consultar_horarios"]
     .filter((n) => SYSTEM_PROMPT.includes(n));
-  log(`  herramientas mencionadas en prompts/system.md: ${menciones.join(", ")}`);
+  log(`  herramientas mencionadas en src/agentes/ventas/prompt.md: ${menciones.join(", ")}`);
   for (const n of menciones) {
     if (!tools.some((t) => t.name === n) && !SYSTEM_PROMPT.includes(`NO están disponibles`)) {
       aviso(`system.md menciona "${n}" pero NO está registrada — si el modelo la llama, la herramienta truena ("Herramienta desconocida")`);
@@ -379,7 +382,7 @@ async function s5Modelo(): Promise<void> {
     return;
   }
 
-  const schemas = await getToolSchemas();
+  const schemas = await esquemasDeHerramientas(await herramientasDe("ventas"));
 
   // [2026-09-08] Este test estaba MAL planteado: mandaba una frase de precios sin contexto y
   // exigía una llamada a la herramienta. Con el flujo nuevo lo correcto es justo lo contrario —
@@ -1212,19 +1215,20 @@ async function s15Postventa(): Promise<void> {
   seccion("15. AGENTE DE POSTVENTA — buscar_reserva_cliente + toolset propio");
   log(
     "  [2026-09-10] postventa ya tiene prompt y herramientas propias (ver " +
-      "prompts/agentes/postventa.md y toolsPostventa en src/core/tools/registry.ts). Esta " +
+      "src/agentes/postventa/prompt.md y src/agentes/postventa/agente.ts). Esta " +
       "sección NO prueba el prompt (eso lo hace la sección 5, con el modelo real) — prueba que " +
       "la herramienta buscar_reserva_cliente consulta bien la tabla `reservas`, que sigue siendo " +
       "la única fuente de verdad (una reserva puede haberse hecho fuera del bot, vía LobbyPMS)."
   );
 
   const nombresEsperados = ["buscar_reserva_cliente", "consultar_planes", "consultar_adicionales", "registrar_datos_reserva"];
-  const nombresReales = toolsPostventa.map((t) => t.name);
+  const herramientasPostventa = await herramientasDe("postventa");
+  const nombresReales = herramientasPostventa.map((t) => t.name);
   const faltan = nombresEsperados.filter((n) => !nombresReales.includes(n));
   if (faltan.length > 0) {
-    problema(`toolsPostventa no tiene: ${faltan.join(", ")}`);
+    problema(`el agente de postventa no tiene: ${faltan.join(", ")}`);
   } else {
-    ok(`toolsPostventa trae las 4 herramientas esperadas: ${nombresReales.join(", ")}`);
+    ok(`el agente de postventa trae las herramientas esperadas: ${nombresReales.join(", ")}`);
   }
 
   const { count: totalReservas } = await supabase.from("reservas").select("*", { count: "exact", head: true });

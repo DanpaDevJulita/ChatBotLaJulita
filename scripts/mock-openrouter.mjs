@@ -22,7 +22,7 @@ const server = http.createServer(async (req, res) => {
 
   res.setHeader("Content-Type", "application/json");
 
-  // Llamada del orquestador (src/core/orchestrator/route.ts): fuerza tool_choice="enrutar".
+  // Llamada del orquestador (src/agentes/orquestador/route.ts): fuerza tool_choice="enrutar".
   // Simulamos la decisión con reglas simples por palabra clave sobre el mensaje del
   // cliente, solo para poder probar el enrutamiento sin gastar créditos de IA.
   if (payload.tool_choice?.function?.name === "enrutar") {

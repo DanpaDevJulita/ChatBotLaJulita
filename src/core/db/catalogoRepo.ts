@@ -13,7 +13,7 @@ export interface Plan {
   precio_fin_de_semana_puente?: number | null;
   // OJO: NO hay columna `capacidad` en `planes` (se quitó en el rediseño). La capacidad
   // sale del nombre del plan y de `domos.capacidad_max` — ver capacidadDePlan() en
-  // src/core/tools/catalogo.ts. Pedirla en un select falla con 42703.
+  // src/agentes/ventas/herramientas/planes.ts. Pedirla en un select falla con 42703.
   domos_id?: number[] | null;
   activo?: boolean;
 }

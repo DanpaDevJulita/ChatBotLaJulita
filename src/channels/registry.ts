@@ -1,7 +1,7 @@
 import type { ChannelAdapter } from "./types.js";
 
 /**
- * Igual patrón que src/core/tools/registry.ts (y que tools/registry.ts en agente-ycloud-main):
+ * Igual patrón que src/agentes/_registro.ts (y que tools/registry.ts en agente-ycloud-main):
  * un mapa nombre → implementación. Para agregar un canal nuevo, se registra aquí y no se
  * toca nada más.
  */
