@@ -94,11 +94,18 @@ export async function crearReservaRealDesdeBloqueo(bloqueo: Bloqueo): Promise<Re
   const anticipo = bloqueo.valor_total != null ? Math.round(bloqueo.valor_total * 0.5) : undefined;
   const canalId = process.env.LOBBYPMS_CHANNEL_ID ? Number(process.env.LOBBYPMS_CHANNEL_ID) : undefined;
 
+  // [2026-09-10] `ninos` solo viene poblado para planes familiares/de amigos (los únicos donde
+  // registrar_datos_reserva pide la edad de cada acompañante) — en cualquier otro caso queda en
+  // null y se sigue mandando todo como adultos, como antes de hoy.
+  const ninos = bloqueo.ninos ?? 0;
+  const totalAdultos = Math.max(1, (bloqueo.personas ?? 1) - ninos);
+
   const reserva = await crearReservaLobby({
     categoryId: bloqueo.lobby_category_id,
     fechaEntradaISO: bloqueo.fecha_entrada,
     fechaSalidaISO: fechaSalida,
-    totalAdultos: bloqueo.personas ?? 1,
+    totalAdultos,
+    totalNinos: ninos,
     numeroDocumentoCliente: clienteListo ? cliente.numero_documento : undefined,
     nacionalidadCliente: "CO",
     nombreSiNuevo: clienteListo ? undefined : cliente.nombre,

@@ -290,7 +290,7 @@ function puntajeOcasion(p: Plan, ocasion?: string): number {
  *   amigas  -> máximo 3 personas
  *   solo    -> 1 persona
  */
-type Segmento = "pareja" | "familia" | "amigas" | "solo" | "pasadia";
+export type Segmento = "pareja" | "familia" | "amigas" | "solo" | "pasadia";
 
 /**
  * [2026-09-09] Si el cliente dijo cuántas personas son pero no dijo el segmento, se deduce:
@@ -307,7 +307,7 @@ function segmentoPorPersonas(personas: number): Segmento | undefined {
   return undefined;
 }
 
-function segmentoDePlan(p: Plan): Segmento {
+export function segmentoDePlan(p: Plan): Segmento {
   const nombre = sinTildes(p.nombre ?? "");
   if (/pasadia/.test(nombre)) return "pasadia";
   if (/amigas|amigos|chicas/.test(nombre)) return "amigas";

@@ -38,6 +38,14 @@ export interface Bloqueo {
   lobby_category_id: number | null;
   lobby_booking_id: number | null;
   lobby_room_id: number | null;
+  /**
+   * [2026-09-10] Cuántos de `personas` son niños (menores de 18) — solo se sabe cuando el plan
+   * es familiar o de amigos, que son los únicos donde `registrar_datos_reserva` pide la edad de
+   * cada acompañante (ver reserva.ts). En cualquier otro plan queda en 0 (se asume que todos son
+   * adultos, como siempre). Sirve para mandar `total_adults`/`total_children` correctos a
+   * LobbyPMS al crear la reserva real (ver reservaLobby.ts).
+   */
+  ninos: number | null;
 }
 
 export interface NuevoBloqueo {
@@ -54,6 +62,7 @@ export interface NuevoBloqueo {
   valorTotal?: number | null;
   lobbyBlockId?: number | null;
   lobbyCategoryId?: number | null;
+  ninos?: number | null;
 }
 
 /**
@@ -80,6 +89,7 @@ export async function crearBloqueo(datos: NuevoBloqueo): Promise<Bloqueo | null>
       valor_total: datos.valorTotal ?? null,
       lobby_block_id: datos.lobbyBlockId ?? null,
       lobby_category_id: datos.lobbyCategoryId ?? null,
+      ninos: datos.ninos ?? null,
     })
     .select()
     .single();

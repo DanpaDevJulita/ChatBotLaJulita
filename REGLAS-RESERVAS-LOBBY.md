@@ -72,10 +72,17 @@ el bot ya lo haya soltado por dentro.
 - **Nacionalidad: se asume Colombia (`CO`) para todos.** El bot no le pregunta la nacionalidad al
   cliente hoy. Si en algún momento hay huéspedes extranjeros que haya que distinguir, hay que
   empezar por ahí (agregar la pregunta en `registrar_datos_reserva`).
-- **Todos los huéspedes se mandan como adultos (`total_adults`).** El bot no distingue niños de
-  adultos al tomar los datos, así que `total_children` queda siempre en 0. Si hace falta la
-  distinción (tarifas diferentes por menores, por ejemplo), hay que agregarlo primero al flujo de
-  toma de datos.
+- **[2026-09-10, actualizado] Adultos y niños ya se distinguen — pero solo en planes familiares
+  o de amigos.** Antes todos los huéspedes se mandaban como adultos (`total_adults`) y
+  `total_children` quedaba siempre en 0. Ahora, si el plan es familiar o de amigos (ver
+  `segmentoDePlan` en `planes.ts`), `registrar_datos_reserva` le pide al cliente la edad de cada
+  acompañante (quien reserva siempre cuenta como adulto) y guarda cuántos son niños
+  (`bloqueos_temporales.ninos`, ver `sql/bloqueo-edades-familia.sql`). Al crear la reserva real
+  (`reservaLobby.ts`) eso se traduce en `total_adults`/`total_children` correctos. En pareja,
+  solo y pasadía no se pregunta ni se usa — se sigue asumiendo que todos son adultos, como antes.
+  Además, en planes familiares se aplica el cupo real que confirmó el equipo: hasta 3 personas si
+  todas son adultas, o hasta 2 adultos y 2 niños (4 en total) — si no alcanza, el bot no registra
+  la reserva y le pide al cliente hablar con el equipo (`cabeEnPlanFamiliar` en `reserva.ts`).
 - **El cliente en LobbyPMS se crea recién en `/confirmar`, no antes.** A propósito: si se creara
   apenas el cliente da sus datos, cada intento de reserva que nunca se paga dejaría un "cliente
   fantasma" en LobbyPMS. Se crea solo cuando ya hay pago confirmado.
@@ -123,3 +130,17 @@ el bot ya lo haya soltado por dentro.
   antes del candado interno.
 - `sql/bloqueo-lobby-real.sql` (nuevo) — la migración; correrla en el SQL editor de Supabase.
 - `.env.example` — `LOBBYPMS_CHANNEL_ID` (opcional).
+
+## Edad de acompañantes y cupo real en planes familiares (agregado 2026-09-10, más tarde)
+
+- `src/agentes/ventas/herramientas/planes.ts` — `segmentoDePlan` ahora exportada (hacía falta en
+  `reserva.ts`).
+- `src/agentes/ventas/herramientas/reserva.ts` — `PersonaArgs.edad` (nuevo); `cabeEnPlanFamiliar`
+  (nuevo); si el plan es familiar o de amigos, pide la edad de cada acompañante y calcula
+  adultos/niños; en plan familiar valida el cupo antes de registrar nada.
+- `src/core/db/bloqueosRepo.ts` — columna `ninos` en `Bloqueo`/`NuevoBloqueo`, `crearBloqueo` la
+  guarda.
+- `src/core/pipeline/reservaLobby.ts` — usa `bloqueo.ninos` para mandar `total_adults`/
+  `total_children` correctos a LobbyPMS (antes todo se mandaba como adultos).
+- `sql/bloqueo-edades-familia.sql` (nuevo) — la migración de la columna `ninos`; correrla en el
+  SQL editor de Supabase.

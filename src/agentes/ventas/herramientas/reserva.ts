@@ -1,5 +1,5 @@
 import type { ToolDefinition } from "../../../core/tools/types.js";
-import { buscarPlanPorNombre, precioPara, tarifaDeFecha, ETIQUETA_TARIFA } from "./planes.js";
+import { buscarPlanPorNombre, precioPara, tarifaDeFecha, ETIQUETA_TARIFA, segmentoDePlan } from "./planes.js";
 import { registrarDatosReserva, type DatosPersona } from "../../../core/db/reservasRepo.js";
 import { cargarCatalogoDomos, claseParaAgrupar, capacidadDePlan } from "./planes.js";
 import { crearBloqueo, type ClaseDomoBloqueo } from "../../../core/db/bloqueosRepo.js";
@@ -17,6 +17,20 @@ interface PersonaArgs {
   numero_documento?: string;
   celular?: string;
   correo?: string;
+  /** [2026-09-10] Solo se pide (y se usa) en planes familiares o de amigos — ver segmentoDePlan. */
+  edad?: number;
+}
+
+/**
+ * [2026-09-10] Cupo real de un plan familiar, ahora que se conoce la edad de cada acompañante:
+ * hasta 3 personas si todas son adultas, o hasta 2 adultos + 2 niños (4 en total) si hay niños.
+ * Regla confirmada por el equipo (ver el comentario sobre "Capacidades reales" en planes.ts) —
+ * generalizada acá para cualquier mezcla de adultos/niños, no solo los dos casos que dieron de
+ * ejemplo: la lógica es "2 personas en la cama principal + 1 adulto O 2 niños en el sofá-cama".
+ */
+function cabeEnPlanFamiliar(adultos: number, ninos: number): boolean {
+  if (ninos === 0) return adultos <= 3;
+  return adultos <= 2 && ninos <= 2;
 }
 
 /** Qué le falta a una persona para poder registrarla. */
@@ -43,7 +57,7 @@ export const registrarDatosReservaTool: ToolDefinition = {
   name: "registrar_datos_reserva",
   permitirRedaccion: true,
   description:
-    "Guarda los datos para dejar la reserva registrada: quien reserva (nombre completo, tipo y número de documento, celular y correo opcional) y CADA acompañante (nombre completo, tipo y número de documento). Llamala solo cuando ya tengas el plan elegido, la fecha, cuántas personas son y los datos de todos los huéspedes. Si falta algún dato te dice cuál pedir. La reserva queda como pendiente de pago y el equipo confirma el cupo.",
+    "Guarda los datos para dejar la reserva registrada: quien reserva (nombre completo, tipo y número de documento, celular y correo opcional) y CADA acompañante (nombre completo, tipo y número de documento). Si el plan es familiar o de amigos, pedile TAMBIÉN la edad de cada acompañante antes de llamar esta herramienta (hace falta para saber cuántos son adultos y cuántos niños) — en cualquier otro plan no hace falta. Llamala solo cuando ya tengas el plan elegido, la fecha, cuántas personas son y los datos de todos los huéspedes. Si falta algún dato te dice cuál pedir. En planes familiares hay un cupo real: hasta 3 personas si todas son adultas, o hasta 2 adultos y 2 niños (4 en total) — si no alcanza, te lo dice para que ofrezcas otra opción. La reserva queda como pendiente de pago y el equipo confirma el cupo.",
   parameters: {
     type: "object",
     properties: {
@@ -74,6 +88,11 @@ export const registrarDatosReservaTool: ToolDefinition = {
             numero_documento: { type: "string", description: "Número del documento." },
             celular: { type: "string", description: "Celular, si lo dio (opcional)." },
             correo: { type: "string", description: "Correo, si lo dio (opcional)." },
+            edad: {
+              type: "integer",
+              description:
+                "Edad del acompañante en años. OBLIGATORIA cuando el plan es familiar o de amigos (para distinguir adultos de niños); en cualquier otro plan no hace falta pedirla.",
+            },
           },
           required: ["nombre", "tipo_documento", "numero_documento"],
         },
@@ -139,6 +158,38 @@ export const registrarDatosReservaTool: ToolDefinition = {
         reply_to_user:
           "Quiero asegurarme de registrar el plan correcto — ¿me confirmas el nombre del plan que quieres tomar?",
       };
+    }
+
+    // [2026-09-10] Familia y amigos: se necesita la edad de cada acompañante para distinguir
+    // adultos de niños (quien reserva siempre cuenta como adulto). En cualquier otro plan no se
+    // pide ni se usa — se sigue asumiendo que todos son adultos, como siempre.
+    const segmento = segmentoDePlan(plan);
+    const necesitaEdades = segmento === "familia" || segmento === "amigas";
+    let ninos = 0;
+    let adultos = personas;
+    if (necesitaEdades) {
+      const sinEdad = acompanantes.some(
+        (a) => a.edad == null || !Number.isFinite(Number(a.edad)) || Number(a.edad) < 0
+      );
+      if (sinEdad) {
+        return {
+          result: { ok: false, faltan: ["la edad de cada acompañante"] },
+          reply_to_user:
+            "Para este plan necesito también la edad de cada acompañante — así sé cuántos son adultos y cuántos niños. ¿Me la compartes?",
+        };
+      }
+      ninos = acompanantes.filter((a) => Number(a.edad) < 18).length;
+      adultos = 1 + (acompanantes.length - ninos);
+
+      if (segmento === "familia" && !cabeEnPlanFamiliar(adultos, ninos)) {
+        return {
+          result: { ok: false, motivo: "no cabe en el cupo del plan familiar", adultos, ninos },
+          reply_to_user:
+            "Para el plan familiar el cupo es hasta 3 personas si todas son adultas, o hasta 2 adultos y 2 niños " +
+            `(4 en total). Con ${adultos} adulto(s) y ${ninos} niño(s) no alcanza — dejame pasarle tu caso al equipo ` +
+            "de La Julita para que te ayuden con otra opción, o revisemos si otro plan te sirve mejor.",
+        };
+      }
     }
 
     const tarifa = tarifaDeFecha(args!.fecha!, args?.festivo);
@@ -238,6 +289,7 @@ export const registrarDatosReservaTool: ToolDefinition = {
           valorTotal: valor,
           lobbyBlockId,
           lobbyCategoryId,
+          ninos,
         });
         if (bloqueo) {
           await programarLiberacion(bloqueo.id, ctx.channel, ctx.externalId);
