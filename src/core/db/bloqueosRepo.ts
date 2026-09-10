@@ -27,6 +27,17 @@ export interface Bloqueo {
   creado_en: string;
   expira_en: string;
   avisado: boolean;
+  /**
+   * [2026-09-10] Ver sql/bloqueo-lobby-real.sql y src/core/integrations/lobbypms.ts — lo que
+   * hace falta para que este candado interno también sea un bloqueo/reserva REAL en LobbyPMS.
+   */
+  cliente_id: number | null;
+  personas: number | null;
+  valor_total: number | null;
+  lobby_block_id: number | null;
+  lobby_category_id: number | null;
+  lobby_booking_id: number | null;
+  lobby_room_id: number | null;
 }
 
 export interface NuevoBloqueo {
@@ -38,6 +49,11 @@ export interface NuevoBloqueo {
   fechaEntrada: string;
   noches?: number;
   minutosVigencia: number;
+  clienteId?: number | null;
+  personas?: number | null;
+  valorTotal?: number | null;
+  lobbyBlockId?: number | null;
+  lobbyCategoryId?: number | null;
 }
 
 /**
@@ -59,6 +75,11 @@ export async function crearBloqueo(datos: NuevoBloqueo): Promise<Bloqueo | null>
       fecha_entrada: datos.fechaEntrada,
       noches: datos.noches ?? 1,
       expira_en: expira,
+      cliente_id: datos.clienteId ?? null,
+      personas: datos.personas ?? null,
+      valor_total: datos.valorTotal ?? null,
+      lobby_block_id: datos.lobbyBlockId ?? null,
+      lobby_category_id: datos.lobbyCategoryId ?? null,
     })
     .select()
     .single();
@@ -177,4 +198,21 @@ export async function bloqueoPendienteDe(canal: string, externalId: string): Pro
     return null;
   }
   return (data as Bloqueo) ?? null;
+}
+
+/**
+ * [2026-09-10] Guarda el booking_id/room_id reales de LobbyPMS una vez creada la reserva desde
+ * /confirmar (ver src/core/pipeline/reservaLobby.ts). Es solo trazabilidad — no cambia `estado`.
+ */
+export async function guardarReservaLobby(id: number, bookingId: number, roomId: number | null): Promise<boolean> {
+  if (!supabaseConfigured) return false;
+  const { error } = await supabase
+    .from("bloqueos_temporales")
+    .update({ lobby_booking_id: bookingId, lobby_room_id: roomId })
+    .eq("id", id);
+  if (error) {
+    console.error("[bloqueosRepo] guardarReservaLobby:", error.message);
+    return false;
+  }
+  return true;
 }

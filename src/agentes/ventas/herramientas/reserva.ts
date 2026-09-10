@@ -4,6 +4,7 @@ import { registrarDatosReserva, type DatosPersona } from "../../../core/db/reser
 import { cargarCatalogoDomos, claseParaAgrupar, capacidadDePlan } from "./planes.js";
 import { crearBloqueo, type ClaseDomoBloqueo } from "../../../core/db/bloqueosRepo.js";
 import { programarLiberacion, BLOQUEO_MINUTOS } from "../../../core/queue/bloqueoQueue.js";
+import { resolverCategoryId, crearBlockLobby, sumarDias } from "../../../core/integrations/lobbypms.js";
 import type { ToolContext } from "../../../core/tools/types.js";
 
 function formatMoney(n: number): string {
@@ -193,6 +194,37 @@ export const registrarDatosReservaTool: ToolDefinition = {
         // LobbyPMS solo tiene "clasico" en dos capacidades fijas (2 o 4) — a lo que no sea
         // chalet/deluxe (que solo existen en 2) se le redondea al bucket que le corresponde.
         const capacidad = clase === "clasico" ? (capacidadPlan <= 2 ? 2 : 4) : 2;
+
+        // [2026-09-10] Además del candado interno de siempre, se intenta el bloqueo REAL en
+        // LobbyPMS (POST /block) para que también quede visible en el calendario de los
+        // vendedores, no solo adentro del bot. Es mejor esfuerzo: si la API oficial no está
+        // disponible (sin token, IP no autorizada, o la categoría no se pudo resolver) se sigue
+        // igual solo con el candado interno, como se hacía antes de hoy.
+        let lobbyBlockId: number | null = null;
+        let lobbyCategoryId: number | null = null;
+        try {
+          const categoryId = await resolverCategoryId(clase, capacidad, args!.fecha!, 1);
+          const fechaSalida = categoryId != null ? sumarDias(args!.fecha!, 1) : null;
+          if (categoryId != null && fechaSalida) {
+            const block = await crearBlockLobby({
+              categoryId,
+              fechaEntradaISO: args!.fecha!,
+              fechaSalidaISO: fechaSalida,
+              minutos: BLOQUEO_MINUTOS,
+              nota: `Bot WhatsApp — ${cliente.nombre} — pendiente de pago`,
+            });
+            if (block) {
+              lobbyBlockId = block.blockId;
+              lobbyCategoryId = categoryId;
+            }
+          }
+        } catch (err) {
+          console.error(
+            "[registrar_datos_reserva] No se pudo bloquear el cupo real en LobbyPMS (sigo con el candado interno):",
+            err
+          );
+        }
+
         const bloqueo = await crearBloqueo({
           canal: ctx.channel,
           externalId: ctx.externalId,
@@ -201,6 +233,11 @@ export const registrarDatosReservaTool: ToolDefinition = {
           capacidad,
           fechaEntrada: args!.fecha!,
           minutosVigencia: BLOQUEO_MINUTOS,
+          clienteId: resultado.cliente_id ?? null,
+          personas,
+          valorTotal: valor,
+          lobbyBlockId,
+          lobbyCategoryId,
         });
         if (bloqueo) {
           await programarLiberacion(bloqueo.id, ctx.channel, ctx.externalId);

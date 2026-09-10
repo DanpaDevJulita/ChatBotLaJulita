@@ -80,6 +80,18 @@ async function getTiposDocumento(): Promise<{ id: number; nombre: string; seudon
   return filas;
 }
 
+/**
+ * [2026-09-10] La inversa de `resolverTipoDocumento`: a partir del id que quedó guardado en
+ * `clientes.tipo_documento_id`, el texto (seudónimo o nombre) que necesita, por ejemplo,
+ * mapear el tipo de documento hacia LobbyPMS al crear la reserva real (ver
+ * src/core/pipeline/reservaLobby.ts).
+ */
+export async function obtenerTextoTipoDocumento(id: number): Promise<string | null> {
+  const tipos = await getTiposDocumento();
+  const fila = tipos.find((t) => t.id === id);
+  return fila?.seudonimo || fila?.nombre || null;
+}
+
 export async function resolverTipoDocumento(texto: string): Promise<number | null> {
   const tipos = await getTiposDocumento();
   if (tipos.length === 0) return null;

@@ -486,3 +486,263 @@ export async function buscarFechasAlternativas(
 
   return alternativas;
 }
+
+// --- Camino 3: bloqueo real de cupo y creación de reservas (2026-09-10) --------------------
+//
+// [2026-09-10] Completa 1.2.c/1.2.d: hasta acá el archivo solo LEE disponibilidad. Lo de abajo
+// SÍ modifica cosas en LobbyPMS (bloquea cupo, crea clientes, crea reservas) — el contrato de
+// "nunca lanza, devolvé null/false si algo no se pudo" se mantiene igual que en todo el archivo,
+// porque quien llama (registrar_datos_reserva, /confirmar) tiene que poder seguir funcionando
+// con el candado interno de siempre si la API oficial no responde.
+//
+// Referencia completa de estos endpoints (documentación real, leída el 2026-09-10):
+// ver REFERENCIA-API-LOBBYPMS.md en la raíz del proyecto.
+
+function apiDisponibleOAvisar(operacion: string): boolean {
+  if (!API_TOKEN) {
+    console.warn(`[lobbypms] ${operacion}: sin LOBBYPMS_API_TOKEN configurado, no se puede hacer.`);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Category_id real de LobbyPMS para una clase+capacidad del bot, resuelto en caliente contra la
+ * disponibilidad (GET /available-rooms) en vez de guardarlo hardcodeado en una tabla: si
+ * LobbyPMS cambia sus category_id, esto se autocorrige solo. `null` si la API oficial no está
+ * disponible o si esa combinación no aparece para esa fecha.
+ */
+export async function resolverCategoryId(
+  clase: ClaseDomoBot,
+  capacidad: number,
+  fechaEntradaISO: string,
+  noches = 1
+): Promise<number | null> {
+  const porDia = await consultarDisponibilidadPorDia(fechaEntradaISO, noches);
+  if (!porDia || porDia.length === 0) return null;
+  const agregadas = agregarPorRango(porDia, Math.max(1, noches));
+  const encontrada = agregadas.find((c) => c.clase === clase && c.capacidad === capacidad && c.categoryId != null);
+  return encontrada?.categoryId ?? null;
+}
+
+export interface NuevoBlockLobby {
+  categoryId: number;
+  fechaEntradaISO: string;
+  fechaSalidaISO: string;
+  /** Minutos que dura el bloqueo. Si no se manda, LobbyPMS lo deja en 60 (su valor por defecto). */
+  minutos: number;
+  nota?: string;
+}
+
+export interface BlockLobby {
+  blockId: number;
+}
+
+/**
+ * POST /api/v1/block — el bloqueo REAL de cupo (visible en el calendario de los vendedores, a
+ * diferencia del candado interno de `bloqueos_temporales`). Se usa desde
+ * `registrar_datos_reserva` apenas el cliente da sus datos.
+ */
+export async function crearBlockLobby(datos: NuevoBlockLobby): Promise<BlockLobby | null> {
+  if (!apiDisponibleOAvisar("crear el bloqueo real de cupo")) return null;
+  try {
+    const res = await axios.post(
+      `${API_OFICIAL_URL}/block`,
+      {
+        api_token: API_TOKEN,
+        category_id: datos.categoryId,
+        start_date: datos.fechaEntradaISO,
+        end_date: datos.fechaSalidaISO,
+        number_rooms: 1,
+        time: datos.minutos,
+        note: datos.nota ?? "Bloqueo del bot de WhatsApp — pendiente de pago",
+      },
+      { timeout: TIMEOUT_MS, headers: { Accept: "application/json" } }
+    );
+    const blockId = res.data?.blocked_ids?.[0] ?? res.data?.rooms?.[0]?.block_id;
+    if (blockId == null) {
+      console.error(
+        "[lobbypms] POST /block respondió sin block_id reconocible:",
+        JSON.stringify(res.data).slice(0, 300)
+      );
+      return null;
+    }
+    console.log(
+      `[lobbypms] Bloqueo real creado en LobbyPMS: block_id=${blockId} (categoría ${datos.categoryId}, ${datos.minutos} min).`
+    );
+    return { blockId: Number(blockId) };
+  } catch (err) {
+    console.error(`[lobbypms] no se pudo crear el bloqueo real (POST /block): ${resumirError(err)}`);
+    return null;
+  }
+}
+
+/** DELETE /api/v1/block/{block_id} — libera el bloqueo real antes de que expire (el cliente ya
+ * confirmó y se creó la reserva, o el bot se lo liberó por vencimiento). */
+export async function liberarBlockLobby(blockId: number): Promise<boolean> {
+  if (!apiDisponibleOAvisar("liberar el bloqueo real de cupo")) return false;
+  try {
+    const res = await axios.delete(`${API_OFICIAL_URL}/block/${blockId}`, {
+      params: { api_token: API_TOKEN },
+      timeout: TIMEOUT_MS,
+      headers: { Accept: "application/json" },
+    });
+    const ok = res.data?.delete_block === true;
+    if (!ok) {
+      console.warn(
+        `[lobbypms] DELETE /block/${blockId} no confirmó la liberación:`,
+        JSON.stringify(res.data).slice(0, 200)
+      );
+    } else {
+      console.log(`[lobbypms] Bloqueo real liberado en LobbyPMS: block_id=${blockId}.`);
+    }
+    return ok;
+  } catch (err) {
+    console.error(`[lobbypms] no se pudo liberar el bloqueo real block_id=${blockId} (DELETE /block): ${resumirError(err)}`);
+    return false;
+  }
+}
+
+/**
+ * LobbyPMS espera el celular con código de país (ej. "+573001245678"). Lo que guarda el bot es
+ * casi siempre un celular colombiano de 10 dígitos sin el +57 — si viene así, se le agrega; si
+ * ya trae algo distinto (otro país, o ya con "+"), se manda tal cual y que LobbyPMS decida.
+ */
+function formatoTelefonoLobby(celular: string): string {
+  const soloDigitos = celular.replace(/[^\d]/g, "");
+  if (/^\d{10}$/.test(soloDigitos)) return `+57${soloDigitos}`;
+  return celular.startsWith("+") ? celular : `+${soloDigitos || celular}`;
+}
+
+/** Mapeo del tipo de documento del bot al id fijo que espera LobbyPMS (GET /api/v1/documents):
+ * 1 Tarjeta de identidad, 2 Cédula de ciudadanía, 3 Pasaporte, 4 Cédula de extranjería, 5 DNI,
+ * 6 NIT. `undefined` si no se reconoce — LobbyPMS lo deja simplemente sin ese dato opcional. */
+function documentIdLobby(tipoDocumentoTexto: string): number | undefined {
+  const t = tipoDocumentoTexto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  if (/pasaporte|passport/.test(t)) return 3;
+  if (/extranjer/.test(t)) return 4;
+  if (/tarjeta de identidad|^ti$/.test(t)) return 1;
+  if (/\bnit\b/.test(t)) return 6;
+  if (/\bdni\b/.test(t)) return 5;
+  if (/cedula|\bcc\b|ciudadania|documento/.test(t)) return 2;
+  return undefined;
+}
+
+export interface ClienteLobby {
+  nombreCompleto: string;
+  tipoDocumentoTexto: string;
+  numeroDocumento: string;
+  celular?: string | null;
+  correo?: string | null;
+  /** Código ISO 3166-1. La Julita hoy no le pregunta la nacionalidad al cliente porque casi
+   * todos son de Colombia — si algún día hace falta distinguir huéspedes extranjeros, este es
+   * el lugar para empezar a pedirlo. */
+  nacionalidad?: string;
+}
+
+/**
+ * POST /api/v1/customer/1 (persona) — crea o actualiza (si el documento ya existe en la
+ * propiedad) el cliente en LobbyPMS ANTES de crear la reserva a su nombre. Se llama desde
+ * `/confirmar` (ver src/core/pipeline/reservaLobby.ts), nunca desde el bot mientras el cliente
+ * todavía no pagó, para no dejar "clientes fantasma" en LobbyPMS por reservas que nunca se
+ * concretaron.
+ */
+export async function crearOActualizarClienteLobby(datos: ClienteLobby): Promise<boolean> {
+  if (!apiDisponibleOAvisar("crear/actualizar el cliente en LobbyPMS")) return false;
+  const partes = datos.nombreCompleto.trim().split(/\s+/).filter(Boolean);
+  const nombre = partes[0] ?? datos.nombreCompleto;
+  const apellido = partes.slice(1).join(" ") || nombre; // la API exige surname; sin apellido, se repite el nombre.
+  try {
+    const res = await axios.post(
+      `${API_OFICIAL_URL}/customer/1`,
+      {
+        api_token: API_TOKEN,
+        customer_document: datos.numeroDocumento,
+        customer_nationality: datos.nacionalidad ?? "CO",
+        name: nombre,
+        surname: apellido,
+        document_id: documentIdLobby(datos.tipoDocumentoTexto),
+        phone: datos.celular ? formatoTelefonoLobby(datos.celular) : undefined,
+        email: datos.correo || undefined,
+      },
+      { timeout: TIMEOUT_MS, headers: { Accept: "application/json" } }
+    );
+    console.log(`[lobbypms] Cliente en LobbyPMS listo (documento ${datos.numeroDocumento}): HTTP ${res.status}.`);
+    return true;
+  } catch (err) {
+    console.warn(
+      `[lobbypms] no se pudo crear/actualizar el cliente en LobbyPMS, sigo con holder_name como respaldo: ${resumirError(err)}`
+    );
+    return false;
+  }
+}
+
+export interface NuevaReservaLobby {
+  categoryId: number;
+  fechaEntradaISO: string;
+  fechaSalidaISO: string;
+  totalAdultos: number;
+  totalNinos?: number;
+  /** Si ya se creó/actualizó el cliente en LobbyPMS (crearOActualizarClienteLobby), su
+   * documento — así LobbyPMS vincula la reserva a ese cliente. */
+  numeroDocumentoCliente?: string;
+  nacionalidadCliente?: string;
+  /** Respaldo si no se pudo crear el cliente antes: LobbyPMS crea uno nuevo solo con el nombre. */
+  nombreSiNuevo?: string;
+  /** El anticipo ya cobrado (o por cobrar) — nuestro 50% de siempre. */
+  anticipo?: number;
+  nota?: string;
+  /** Id del canal de venta (GET /api/v1/channels) para distinguir en LobbyPMS lo que entra por
+   * el bot — opcional, ver LOBBYPMS_CHANNEL_ID en el .env. */
+  channelId?: number;
+}
+
+export interface ReservaLobby {
+  bookingId: number;
+  roomId: number | null;
+}
+
+/** POST /api/v1/bookings — crea la reserva real. Es el paso final de 1.2.d, llamado desde
+ * /confirmar cuando el equipo ya verificó el pago (ver src/core/pipeline/reservaLobby.ts). */
+export async function crearReservaLobby(datos: NuevaReservaLobby): Promise<ReservaLobby | null> {
+  if (!apiDisponibleOAvisar("crear la reserva real")) return null;
+
+  const cuerpo: Record<string, unknown> = {
+    api_token: API_TOKEN,
+    category_id: datos.categoryId,
+    start_date: datos.fechaEntradaISO,
+    end_date: datos.fechaSalidaISO,
+    total_adults: datos.totalAdultos,
+  };
+  if (datos.totalNinos) cuerpo.total_children = datos.totalNinos;
+  if (datos.numeroDocumentoCliente) {
+    cuerpo.customer_document = datos.numeroDocumentoCliente;
+    cuerpo.customer_nationality = datos.nacionalidadCliente ?? "CO";
+  } else if (datos.nombreSiNuevo) {
+    cuerpo.holder_name = datos.nombreSiNuevo;
+  }
+  if (datos.anticipo != null) cuerpo.payment = datos.anticipo;
+  if (datos.nota) cuerpo.note = datos.nota;
+  if (datos.channelId != null) cuerpo.channel = datos.channelId;
+
+  try {
+    const res = await axios.post(`${API_OFICIAL_URL}/bookings`, cuerpo, {
+      timeout: TIMEOUT_MS,
+      headers: { Accept: "application/json" },
+    });
+    const fila = res.data?.data?.[0];
+    const bookingId = fila?.idBooking;
+    if (bookingId == null) {
+      console.error(
+        "[lobbypms] POST /bookings respondió sin idBooking reconocible:",
+        JSON.stringify(res.data).slice(0, 300)
+      );
+      return null;
+    }
+    console.log(`[lobbypms] Reserva real creada en LobbyPMS: booking_id=${bookingId} (categoría ${datos.categoryId}).`);
+    return { bookingId: Number(bookingId), roomId: fila?.idRoom != null ? Number(fila.idRoom) : null };
+  } catch (err) {
+    console.error(`[lobbypms] no se pudo crear la reserva real (POST /bookings): ${resumirError(err)}`);
+    return null;
+  }
+}

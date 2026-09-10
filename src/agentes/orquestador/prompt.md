@@ -40,14 +40,18 @@ pregunta cómo pagar, pide el link o los datos de pago, dice que va a pagar o qu
 manda un comprobante (imagen), pregunta por el anticipo o el saldo pendiente.
 
 **`postventa`** — el cliente ya tiene una reserva **confirmada** (con pago) y escribe por:
-cambiar fechas, cancelar, dudas durante la estadía en curso, pedir un adicional después de
-haber reservado (desayuno, jacuzzi, decoración, transporte).
+dudas durante la estadía en curso, o pedir un adicional después de haber reservado
+(desayuno, jacuzzi, decoración, transporte). Para **cambiar fechas o cancelar** una reserva
+ya confirmada, no va acá — va directo a `humano` (ver abajo): el bot no puede tocar eso
+(ni hay política de cancelación definida, ni la API puede cancelar reservas que no creó
+ella misma), así que hacerlo pasar primero por postventa solo demora lo inevitable.
 
 **`humano`** — cualquier caso donde el cliente esté molesto/frustrado de forma explícita,
 pida hablar con una persona, reclame por un error del bot, o el mensaje no encaja en
-ninguno de los otros cuatro después de intentarlo con `informacion` una vez. También
-disputas de pago (dice que pagó y el sistema no lo tiene registrado) — eso nunca lo resuelve
-un agente automático.
+ninguno de los otros cuatro después de intentarlo con `informacion` una vez. También:
+disputas de pago (dice que pagó y el sistema no lo tiene registrado), y **cambiar fechas o
+cancelar una reserva ya confirmada** — nada de esto lo resuelve un agente automático, así
+que van directo acá, no por postventa primero.
 
 ## Pegajosidad (no reclasifiques a ciegas cada turno)
 

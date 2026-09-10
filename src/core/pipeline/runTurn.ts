@@ -8,12 +8,13 @@ import {
 import { leerPromptBase } from "../../agentes/_tipos.js";
 import { openrouter, LLM_MODEL } from "../llm/openrouter.js";
 import { insertMensaje, listMensajes } from "../db/mensajesRepo.js";
-import { getEstado, setLastAgent } from "../db/estadoRepo.js";
+import { getEstado, setLastAgent, marcarEscalado, marcarAvisoHumano } from "../db/estadoRepo.js";
 import { enrutarMensaje } from "../../agentes/orquestador/route.js";
 import { enviarSeguro } from "./enviar.js";
 import { programarRecontacto, cancelarRecontacto } from "../queue/recontactoQueue.js";
 import { intentarComando } from "./comandos.js";
 import { bloqueDeCorrecciones } from "../db/correccionesRepo.js";
+import { notificarEscalamiento } from "./notificarEquipo.js";
 
 // [2026-09-10] Cada agente (un "bot") vive en su propia carpeta bajo src/agentes/ con su prompt
 // y sus herramientas, y se registra solo (ver src/agentes/_registro.ts). Este archivo ya no sabe
@@ -42,13 +43,25 @@ function fechaDeHoyEnColombia(): string {
   return `Para tu referencia: hoy es ${texto} en Colombia (${ahoraBogota.toISOString().slice(0, 10)}). Usalo para convertir a fecha exacta lo que diga el cliente ("este sábado", "el 20 de diciembre").`;
 }
 
-// Mensaje fijo para cuando el orquestador decide escalar a un humano. Todavía no hay
-// notificación automática al equipo (WhatsApp/email, como leadNotify.ts en
-// agente-ycloud-main) — por ahora el escalamiento queda en los logs del servidor y en el
-// monitor del panel de administración (el mensaje del cliente sigue quedando ahí). Portar
-// esa notificación es trabajo pendiente, no de este cambio.
+// [2026-09-10] Mensajes para cuando el orquestador decide escalar a un humano — ver
+// notificarEquipo.ts para el aviso real al equipo por WhatsApp (antes esto NO existía: el
+// escalamiento quedaba solo en los logs del servidor y en el panel de administración, así
+// que nadie se enteraba salvo que estuviera mirando cualquiera de los dos en ese momento).
+//
+// Van dos mensajes distintos a propósito:
+//  - MENSAJE_ESCALADO: la primera vez que se escala en esta racha (estado.escalado_en
+//    todavía null). Es el aviso completo.
+//  - MENSAJE_RECORDATORIO: si el cliente sigue escribiendo mientras espera al equipo, NO se
+//    le repite el mensaje completo en cada mensaje suyo (se sentiría como un bot roto en
+//    loop) — se le manda este, más corto, y solo si pasaron más de UMBRAL_RECORDATORIO_MS
+//    desde el último aviso. Entre medio, el bot queda en silencio en vez de insistir: el
+//    mensaje del cliente igual queda guardado en `mensajes` y visible en el panel para el
+//    equipo.
 const MENSAJE_ESCALADO =
   "Ya te comunico con el equipo de La Julita para que te ayude con esto — en un momento te escriben por acá.";
+const MENSAJE_RECORDATORIO =
+  "Tu mensaje ya quedó con el equipo de La Julita, en breve te responden por acá 🙏";
+const UMBRAL_RECORDATORIO_MS = 15 * 60 * 1000;
 
 /**
  * Cache en memoria por conversación — evita releer Supabase en cada hop del mismo turno.
@@ -162,17 +175,58 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
   await setLastAgent(event.channel, event.externalId, decision.agente);
 
   if (decision.agente === "humano") {
-    console.warn(`[orquestador] Escalado a humano (${decision.motivo}) — ${key}`);
-    history.push({ role: "assistant", content: MENSAJE_ESCALADO });
-    historyByUser.set(key, history);
-    await insertMensaje({
-      canal: event.channel,
-      external_id: event.externalId,
-      role: "assistant",
-      content: MENSAJE_ESCALADO,
-      agent_name: "humano",
-    });
-    await enviarSeguro(adapter, event.externalId, MENSAJE_ESCALADO, key);
+    // [2026-09-10] `estado` se leyó ANTES del setLastAgent de arriba, así que todavía refleja
+    // si esta conversación YA estaba escalada (racha en curso) o si esta es la primera vez.
+    const yaEstabaEscalada = Boolean(estado.escalado_en);
+
+    if (!yaEstabaEscalada) {
+      // Primera vez en esta racha: aviso completo al cliente + aviso real al equipo por
+      // WhatsApp (antes esto NO pasaba — quedaba solo en los logs, ver notificarEquipo.ts).
+      console.warn(`[orquestador] Escalado a humano (${decision.motivo}) — ${key}`);
+      await marcarEscalado(event.channel, event.externalId);
+      await notificarEscalamiento({
+        canalCliente: event.channel,
+        externalIdCliente: event.externalId,
+        motivo: decision.motivo,
+        mensajeCliente: event.text ?? "",
+      });
+
+      history.push({ role: "assistant", content: MENSAJE_ESCALADO });
+      historyByUser.set(key, history);
+      await insertMensaje({
+        canal: event.channel,
+        external_id: event.externalId,
+        role: "assistant",
+        content: MENSAJE_ESCALADO,
+        agent_name: "humano",
+      });
+      await enviarSeguro(adapter, event.externalId, MENSAJE_ESCALADO, key);
+    } else {
+      // Ya estaba escalada: NO se le repite el mensaje completo en cada mensaje suyo (se
+      // sentiría como un bot roto en loop), y NO se vuelve a notificar al equipo por cada
+      // mensaje — el mensaje ya quedó guardado en `mensajes` y visible en el panel. Solo se
+      // le manda un recordatorio corto si pasó bastante rato desde el último.
+      const ultimoAviso = estado.ultimo_aviso_humano_en ? new Date(estado.ultimo_aviso_humano_en).getTime() : 0;
+      const pasoElUmbral = Date.now() - ultimoAviso > UMBRAL_RECORDATORIO_MS;
+
+      // El mensaje del cliente ya quedó guardado arriba (antes de enrutar), así que acá no
+      // hace falta insertMensaje de nuevo — solo decidir si le mandamos el recordatorio.
+      if (pasoElUmbral) {
+        await marcarAvisoHumano(event.channel, event.externalId);
+        history.push({ role: "assistant", content: MENSAJE_RECORDATORIO });
+        historyByUser.set(key, history);
+        await insertMensaje({
+          canal: event.channel,
+          external_id: event.externalId,
+          role: "assistant",
+          content: MENSAJE_RECORDATORIO,
+          agent_name: "humano",
+        });
+        await enviarSeguro(adapter, event.externalId, MENSAJE_RECORDATORIO, key);
+      }
+      // Si no pasó el umbral: silencio del bot. El mensaje del cliente ya quedó registrado
+      // (ver insertMensaje más arriba, antes del enrutamiento) y visible para el equipo.
+    }
     // Desde acá se encarga una persona del equipo: el bot no vuelve a insistir solo.
     await cancelarRecontacto(event.channel, event.externalId);
     return;

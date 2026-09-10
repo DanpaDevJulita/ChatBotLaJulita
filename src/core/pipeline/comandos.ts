@@ -3,6 +3,8 @@ import { agregarCorreccion, desactivarCorreccion, listCorrecciones } from "../db
 import { crearSesion, usuarioDeSesion, cerrarSesion } from "../db/sesionesRepo.js";
 import { bloqueosPendientes, confirmarBloqueo } from "../db/bloqueosRepo.js";
 import { cancelarLiberacion } from "../queue/bloqueoQueue.js";
+import { resolverEscalamiento, conversacionesEscaladas } from "../db/estadoRepo.js";
+import { crearReservaRealDesdeBloqueo } from "./reservaLobby.js";
 
 /**
  * Comandos del equipo por el mismo WhatsApp del bot: sirven para enseñarle cosas en caliente
@@ -35,6 +37,7 @@ const COMANDOS_AYUDA = ["/ayuda", "/comandos"];
 const COMANDOS_LOGIN = ["/soy", "/login"];
 const COMANDOS_SALIR = ["/salir", "/logout"];
 const COMANDOS_CONFIRMAR = ["/confirmar", "/confirmo"];
+const COMANDOS_RESUELTO = ["/resuelto", "/reanudar"];
 
 const MAX_INTENTOS = 5;
 const BLOQUEO_MS = 15 * 60 * 1000;
@@ -245,6 +248,7 @@ export async function intentarComando(
     ...COMANDOS_LOGIN,
     ...COMANDOS_SALIR,
     ...COMANDOS_CONFIRMAR,
+    ...COMANDOS_RESUELTO,
   ].includes(comando);
   if (!conocido) return { manejado: false };
 
@@ -298,7 +302,8 @@ export async function intentarComando(
         "/corrige <lo que querés que cambie> — se lo enseño y aplica con todos los clientes.\n" +
         "/correcciones — te muestro todo lo aprendido, con su número.\n" +
         "/borra <número> — desactivo esa corrección.\n" +
-        "/confirmar <número del cliente> — verificaste el pago: cancelo el bloqueo de 10 min y no le mando el aviso de liberación.\n" +
+        "/confirmar <número del cliente> — verificaste el pago: cancelo el bloqueo de 10 min, no le mando el aviso de liberación y creo la reserva real en LobbyPMS.\n" +
+        "/resuelto <número del cliente> — ya atendiste el caso escalado: el bot vuelve a responderle normal desde su próximo mensaje.\n" +
         "/salir — cierro la sesión en este número.\n\n" +
         "Ejemplo: /corrige nunca digas cabañas, decí domos.",
     };
@@ -334,10 +339,55 @@ export async function intentarComando(
       };
     }
     await cancelarLiberacion(delCliente.id);
+
+    // [2026-09-10] 1.2.d: con el pago ya verificado, el bot intenta crear la reserva REAL en
+    // LobbyPMS (ver reservaLobby.ts) — mejor esfuerzo. El pago queda confirmado pase lo que
+    // pase acá; si falla, se le avisa al equipo (nunca al cliente) para que la cree a mano.
+    const resultadoLobby = await crearReservaRealDesdeBloqueo(delCliente);
+    const avisoLobby = resultadoLobby.ok
+      ? `\n\n✅ Reserva creada en LobbyPMS (#${resultadoLobby.bookingId}).`
+      : `\n\n⚠️ No pude crearla sola en LobbyPMS (${resultadoLobby.motivo}) — hace falta crearla a mano en el panel.`;
+
     return {
       manejado: true,
-      etiquetaParaLog: `/confirmar bloqueo #${delCliente.id} (cliente ${numero}) por ${quien}`,
-      respuesta: `Listo ✅ Confirmé el pago del bloqueo #${delCliente.id} — ya no se libera y no le mando el aviso de vencimiento.`,
+      etiquetaParaLog:
+        `/confirmar bloqueo #${delCliente.id} (cliente ${numero}) por ${quien} — LobbyPMS: ` +
+        (resultadoLobby.ok ? `reserva #${resultadoLobby.bookingId}` : `falló (${resultadoLobby.motivo})`),
+      respuesta:
+        `Listo ✅ Confirmé el pago del bloqueo #${delCliente.id} — ya no se libera y no le mando el aviso de vencimiento.` +
+        avisoLobby,
+    };
+  }
+
+  // [2026-09-10] Cierra un escalamiento a humano (ver src/core/pipeline/runTurn.ts y
+  // notificarEquipo.ts): el equipo ya atendió al cliente por su cuenta, así que se limpia
+  // `escalado_en` y se resetea `last_agent` para que el bot vuelva a responderle normal
+  // desde el próximo mensaje del cliente — si no, se quedaría "pegado" a humano para siempre.
+  if (COMANDOS_RESUELTO.includes(comando)) {
+    const numero = resto.replace(/\D/g, "").slice(-10);
+    if (!numero) {
+      return {
+        manejado: true,
+        etiquetaParaLog: `/resuelto sin número (${quien})`,
+        respuesta: "Decime el número del cliente. Ejemplo: /resuelto 3001234567",
+      };
+    }
+    const escaladas = await conversacionesEscaladas(canal);
+    const delCliente = escaladas.find((c) => clave(c.external_id) === numero);
+    if (!delCliente) {
+      return {
+        manejado: true,
+        etiquetaParaLog: `/resuelto sin escalamiento pendiente para ${numero} (${quien})`,
+        respuesta: "No encontré ese número como escalado ahora mismo — puede que ya lo hayas resuelto antes.",
+      };
+    }
+    const ok = await resolverEscalamiento(canal, delCliente.external_id);
+    return {
+      manejado: true,
+      etiquetaParaLog: `/resuelto (cliente ${numero}) por ${quien}: ${ok ? "ok" : "falló"}`,
+      respuesta: ok
+        ? `Listo ✅ El bot vuelve a atender a ese cliente normal desde su próximo mensaje.`
+        : "No pude actualizarlo — el detalle quedó en los logs del worker.",
     };
   }
 

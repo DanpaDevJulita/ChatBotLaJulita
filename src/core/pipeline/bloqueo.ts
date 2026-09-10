@@ -4,6 +4,7 @@ import { insertMensaje } from "../db/mensajesRepo.js";
 import { enviarSeguro } from "./enviar.js";
 import { registrarMensajeDelBot } from "./runTurn.js";
 import type { BloqueoJob } from "../queue/bloqueoQueue.js";
+import { liberarBlockLobby } from "../integrations/lobbypms.js";
 
 const MENSAJE_LIBERACION =
   "⏰ Ya pasaron los 10 minutos y no me llegó la confirmación del pago, así que liberé el cupo " +
@@ -22,6 +23,20 @@ export async function ejecutarLiberacionBloqueo(job: BloqueoJob, adapter: Channe
   if (!liberado) {
     console.log(`[bloqueo] ${key}: bloqueo #${job.bloqueoId} ya no estaba pendiente (confirmado o ya liberado) — no aviso nada.`);
     return;
+  }
+
+  // [2026-09-10] Si este bloqueo también tenía un bloqueo REAL en LobbyPMS (POST /block, ver
+  // registrar_datos_reserva), hay que liberarlo ahí también — si no, el cupo queda "tomado" en
+  // el calendario de LobbyPMS aunque el bot ya lo liberó por dentro. Mejor esfuerzo: si falla,
+  // el bloqueo real igual se vence solo cuando pasen los minutos que se le pidieron a LobbyPMS.
+  if (liberado.lobby_block_id) {
+    const ok = await liberarBlockLobby(liberado.lobby_block_id);
+    if (!ok) {
+      console.warn(
+        `[bloqueo] ${key}: no pude liberar el bloqueo real de LobbyPMS (block_id=${liberado.lobby_block_id}) — ` +
+          "se vencerá solo cuando pasen los minutos que se le pidieron a LobbyPMS."
+      );
+    }
   }
 
   const entregado = await enviarSeguro(adapter, job.externalId, MENSAJE_LIBERACION, key);
