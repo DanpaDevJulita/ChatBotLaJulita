@@ -7,34 +7,53 @@ CRM...) separado del bot: el bot (`src/core`) solo conoce `InboundEvent`/`Outbou
 
 ## Estructura
 
-- `src/channels/` — un adaptador por canal: `console` (terminal) y `whatsapp-ycloud` (real,
-  portado de `agente-ycloud-main`) implementan el mismo contrato (`ChannelAdapter`).
-  `whatsapp-ycloud/client.ts` manda mensajes, `signature.ts` verifica la firma del webhook,
-  `adapter.ts` junta todo y parsea los mensajes entrantes.
-- `src/channels/registry.ts` — mapa nombre de canal → adaptador (igual patrón que las
-  herramientas de la IA).
-- `src/core/` — el bot: el prompt del Agente de Información (`prompts/system.md`), sus
-  herramientas (`src/core/tools/`), el router/orquestador (`src/core/orchestrator/route.ts`,
-  con su propio prompt en `prompts/orquestador.md`) y el pipeline que junta todo por turno
-  (`src/core/pipeline/runTurn.ts`). No importa nada de `src/channels/*` directamente.
-- `src/core/orchestrator/route.ts` — decide, en cada mensaje entrante, a qué agente le
-  toca responder (`informacion`, `reservas`, `pagos`, `postventa` o `humano`) llamando al
-  modelo con una herramienta `enrutar` de salida forzada. Guarda esa decisión en
-  `estado_conversacion` (`src/core/db/estadoRepo.ts`) para no reclasificar a ciegas cada
-  turno. Hoy solo `informacion` tiene herramientas reales — `reservas`/`pagos`/`postventa`
-  ya se enrutan como tales (queda guardado en `estado_conversacion.last_agent` y en
-  `mensajes.agent_name`) pero mientras no tengan sus propias herramientas construidas
-  (ver `prompts/agentes/*.md`), los sigue atendiendo el Agente de Información. `humano`
-  corta el flujo de una vez con un mensaje fijo (todavía sin notificación automática al
-  equipo — pendiente).
-- `src/web/` — el servidor que recibe el webhook de WhatsApp (`POST /webhooks/whatsapp`) y
-  llama al mismo `handleInbound` que usa la consola. `src/web/admin/` es el panel de
-  administración (ver sección propia más abajo).
-- `src/core/db/` — todo lo que habla con Supabase: planes, adicionales, horarios/fechas
-  bloqueadas, FAQ y el historial de mensajes. Tanto el bot (`src/core/tools/`) como el
-  panel de administración (`src/web/admin/routes.ts`) leen/escriben a través de estos
-  archivos — nunca directo a Supabase desde otro lado.
-- `scripts/chat-local.ts` — punto de entrada para hablar con el bot desde la terminal.
+**Cada bot es una carpeta en `src/agentes/`**, con todo lo suyo adentro (su prompt, sus
+herramientas, su definición). Está armado así para que varias personas trabajen en paralelo, una
+por bot, sin editar los mismos archivos ni pelearse al unir ramas. Ver
+[`src/agentes/LEEME.md`](src/agentes/LEEME.md) para el detalle y para cómo crear un bot nuevo.
+
+```
+src/agentes/            LOS BOTS — una carpeta por bot, se registran solos
+  _base.md              prompt común a todos (persona, tono, regla de precios)
+  _tipos.ts             el contrato de un agente
+  _registro.ts          descubre las carpetas solo; nadie lo edita para sumar un bot
+  ventas/               atiende hoy: informacion + reservas + pagos
+  postventa/            atiende: postventa
+  orquestador/          el router: decide qué bot atiende cada mensaje
+  reservas/ pagos/      reservados, sin construir (los atiende ventas por ahora)
+
+src/core/               INFRAESTRUCTURA COMPARTIDA (la usan todos los bots)
+  db/                   todo lo que habla con Supabase
+  integrations/         LobbyPMS (disponibilidad real, reservas, bloqueos)
+  queue/                BullMQ + Redis
+  llm/                  OpenRouter
+  pipeline/             el turno completo: runTurn, envío, comandos, recontacto, bloqueos
+  lib/  tools/types.ts  utilidades y el contrato de una herramienta
+
+src/channels/           un adaptador por canal: console y whatsapp-ycloud
+src/web/                servidor del webhook + panel de administración (/admin)
+src/worker/             los procesos que consumen las colas
+```
+
+El bot nunca conoce el canal: `src/agentes/` y `src/core/` solo manejan `InboundEvent` /
+`OutboundMessage` (definidos en `src/channels/types.ts`), nunca el formato de WhatsApp ni de
+ningún otro canal. Por eso el mismo bot funciona igual desde la consola que desde WhatsApp.
+
+**El orquestador** (`src/agentes/orquestador/`) clasifica cada mensaje entrante en
+`informacion`, `reservas`, `pagos`, `postventa` o `humano`, y guarda esa decisión en
+`estado_conversacion` para no reclasificar a ciegas en cada turno. El pipeline le pregunta al
+registro qué bot atiende ese tema. `humano` corta el flujo con un mensaje fijo (la notificación
+automática al equipo sigue pendiente).
+
+### Verificaciones rápidas
+
+```
+npm run typecheck                            # tipos de todo el proyecto
+npx tsx scripts/probar-agentes.ts            # el registro de bots está sano
+npx tsx scripts/probar-parser-lobbypms.ts    # el parser de disponibilidad (sin red)
+npx tsx scripts/diagnostico.ts               # auditoría completa (necesita red y credenciales)
+npx tsx scripts/probar-lobbypms.ts           # API oficial de LobbyPMS (necesita IP autorizada)
+```
 
 ## Cómo correrlo
 
@@ -109,7 +128,7 @@ instante, sin tocar código ni reiniciar el servidor.
    - Lo que el bot usa **hoy**: `planes` (los domos), `adicionales`, `configuracion`,
      `fechas_bloqueadas`, `faq`, `mensajes` y `estado_conversacion` (del orquestador).
    - El diseño **completo** para cuando se construyan los agentes de Reservas/Pagos/
-     Postventa (`prompts/agentes/*.md`): `temporadas` (tarifas por época), `contacts`
+     Postventa (`src/agentes/*/prompt.md`): `temporadas` (tarifas por época), `contacts`
      (identidad del huésped, separada del canal), `reservations`, `reserva_adicionales`,
      `pagos` y `politicas_cancelacion` — quedan creadas desde ya para no rediseñar el
      schema en cada fase, aunque el código todavía no las use. `equipo` queda lista para
@@ -149,7 +168,7 @@ vendedor, se puede migrar a Supabase Auth.
 - [x] Historial de conversaciones en Supabase (sobrevive a un reinicio del servidor).
 - [x] Panel de administración (`/admin`): planes, adicionales, horarios, fechas
       bloqueadas, FAQ y monitor de conversaciones.
-- [x] Orquestador (`src/core/orchestrator/route.ts` + `prompts/orquestador.md`): enruta cada
+- [x] Orquestador (`src/agentes/orquestador/route.ts` + `src/agentes/orquestador/prompt.md`): enruta cada
       mensaje a `informacion`/`reservas`/`pagos`/`postventa`/`humano`, con pegajosidad
       (`estado_conversacion.last_agent`) y trazabilidad (`mensajes.agent_name`). `humano`
       corta el flujo con un mensaje fijo; `reservas`/`pagos`/`postventa` ya se enrutan como
@@ -162,7 +181,7 @@ vendedor, se puede migrar a Supabase Auth.
       llegar, mascotas, precios reales, etc. Siguen con `[PENDIENTE]` hasta que el equipo
       los cargue.
 - [ ] Construir los agentes de Reservas, Pagos y Postventa (diseño ya escrito en
-      `prompts/agentes/*.md`, cada uno marca con `[PENDIENTE]` qué herramientas le faltan).
+      `src/agentes/*/prompt.md`, cada uno marca con `[PENDIENTE]` qué herramientas le faltan).
       La pieza más crítica es `verificarDisponibilidadFechas` — hoy `fechas_bloqueadas` es
       solo un registro, el bot todavía no la consulta ni hay cotización/reserva real.
 - [ ] Notificación automática al equipo cuando el orquestador escala a `humano` (hoy solo

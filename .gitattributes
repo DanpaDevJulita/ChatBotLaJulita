@@ -1,0 +1,17 @@
+# Normaliza los finales de linea: en el repositorio SIEMPRE se guarda LF.
+# Sin esto, una maquina con Windows y otra con Linux hacen que cada archivo
+# aparezca "cambiado entero" en cada commit y toda union de ramas es un conflicto.
+* text=auto eol=lf
+
+# Archivos que deben conservar CRLF si o si (scripts de Windows)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binarios: git no los debe tocar
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.ico binary

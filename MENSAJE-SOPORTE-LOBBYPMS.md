@@ -1,12 +1,50 @@
 # Mensaje para soporte de LobbyPMS (borrador listo para enviar)
 
-> Para: soporte / equipo técnico de LobbyPMS
-> De: La Julita Glamping
-> Objetivo: obtener el diccionario de datos de la API v1 para terminar la integración del
-> asistente de WhatsApp (disponibilidad, reservas y bloqueo de cupo).
+> **[2026-09-10 — ACTUALIZACIÓN: este mensaje ya casi no hace falta.]**
 >
-> Cómo usarlo: copiá el bloque de abajo tal cual (o pegalo en el chat de soporte). Está redactado
-> para que puedan responder puntualmente sin varias vueltas de correo.
+> La documentación oficial de la API está en `https://app.lobbypms.com/api` (entrando al panel) y
+> de ahí salió casi todo lo que este borrador pedía. El resumen quedó en
+> **`REFERENCIA-API-LOBBYPMS.md`**, en la raíz del proyecto. En particular ya sabemos que:
+>
+> - `POST /api/v1/block` **sí acepta duración**: el parámetro `time`, en minutos (por defecto 60).
+>   O sea, el bloqueo de 10 minutos se hace con `time: 10`, y se libera antes con
+>   `DELETE /api/v1/block/{block_id}`.
+> - `POST /api/v1/bookings` está documentado (`category_id`, fechas, `total_adults`, `payment`
+>   para el anticipo, `channel` para marcar el origen).
+> - Hay endpoints que no sabíamos que existían y nos sirven: enlaces de pago
+>   (`/api/v1/payment/link`, que además permite **consultar si el cliente ya pagó**), agregar
+>   consumos a una reserva, cancelar reserva, y estado de habitaciones del día.
+>
+> **Solo quedan dos preguntas abiertas.** Si hay que escribirle a soporte, es por estas dos —
+> el resto del borrador se deja abajo nada más que como registro.
+
+---
+
+## Las dos preguntas que siguen abiertas
+
+Buen día,
+
+Somos La Julita Glamping (propiedad 16392). Estamos integrando nuestro asistente de WhatsApp con
+la API v1 y ya trabajamos con la documentación de `app.lobbypms.com/api`. Nos quedaron dos dudas
+que no encontramos ahí:
+
+1. **¿Existe una forma de LISTAR reservas?** La documentación describe el detalle por id
+   (`GET /api/v1/bookings/{booking_id}`), pero necesitamos traer las reservas de un rango de
+   fechas (o buscarlas por documento del huésped) para sincronizarlas con nuestro sistema. El
+   endpoint `GET /api/v1/bookings` responde al método GET: ¿acepta parámetros de filtro
+   (fechas, documento, estado, o algún `updated_since`)? ¿Y paginación?
+
+2. **¿Tienen webhooks?** Nos interesa que LobbyPMS nos avise a una URL nuestra cuando se crea,
+   modifica o cancela una reserva —sobre todo las que cargan nuestros vendedores directamente en
+   el sistema—, para no tener que consultar la API cada tanto.
+
+Gracias.
+
+La Julita Glamping
+
+---
+
+## (Registro) Borrador original, previo a encontrar la documentación
 
 ---
 

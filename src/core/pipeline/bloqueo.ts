@@ -11,7 +11,7 @@ const MENSAJE_LIBERACION =
   "Si seguís interesado, decime y reviso de nuevo la disponibilidad para esa fecha.";
 
 /**
- * Se dispara BLOQUEO_MINUTOS después de crear un bloqueo (ver src/core/tools/reserva.ts).
+ * Se dispara BLOQUEO_MINUTOS después de crear un bloqueo (ver src/agentes/ventas/herramientas/reserva.ts).
  * Antes de avisar nada, vuelve a mirar el estado real en la base: si el equipo ya lo confirmó
  * con /confirmar (o si por lo que sea ya se liberó antes), `liberarBloqueoSiVencido` no toca
  * nada y devuelve null — así nunca se manda un aviso de "se venció" sobre algo que sí se pagó.

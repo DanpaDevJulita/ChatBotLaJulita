@@ -14,7 +14,10 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import { supabase, supabaseConfigured } from "../src/core/db/supabase.js";
-import { tools } from "../src/core/tools/registry.js";
+import { herramientasDe } from "../src/agentes/_registro.js";
+
+// [2026-09-10] Las herramientas ahora viven en la carpeta de su agente (src/agentes/<bot>/).
+const tools = await herramientasDe("ventas");
 
 const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
 const REPORTE = path.join(process.cwd(), `revision-registro-${stamp}.txt`);

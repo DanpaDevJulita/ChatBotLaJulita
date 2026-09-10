@@ -1,1 +1,27 @@
+# Dependencias: se reinstalan con `npm install`. NUNCA al repo — cada máquina baja binarios
+# distintos (por ejemplo esbuild para Windows vs Linux) y eso genera miles de conflictos al
+# unir ramas.
+node_modules/
+
+# Credenciales
 .env
+.env.local
+
+# Salidas que generan los scripts en cada corrida
+diagnostico-*.txt
+estructura-db-*.txt
+lobbypms-prueba-*.txt
+
+# Respaldos con fecha (para eso está el historial de git)
+*.bak-*
+_respaldos/
+
+# Compilado
+dist/
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+
+# Carpeta de descartes local (archivos superados por la reestructura)
+_to_delete/

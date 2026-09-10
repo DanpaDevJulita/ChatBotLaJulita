@@ -6,7 +6,7 @@ import { getChannel } from "../channels/registry.js";
 
 /**
  * Consume la cola `bloqueo`: cada trabajo es la liberación automática de un cupo que un
- * cliente tenía apartado (ver src/core/tools/reserva.ts) y no confirmó a tiempo. Mismo patrón
+ * cliente tenía apartado (ver src/agentes/ventas/herramientas/reserva.ts) y no confirmó a tiempo. Mismo patrón
  * que recontactoWorker.ts, corre en el mismo proceso `npm run worker`.
  */
 export function startBloqueoWorker() {

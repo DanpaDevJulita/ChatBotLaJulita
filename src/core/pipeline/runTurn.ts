@@ -1,51 +1,29 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { ChannelAdapter, InboundEvent } from "../../channels/types.js";
-import { getToolSchemas, getToolHandler, getTool, toolsVentas, toolsPostventa } from "../tools/registry.js";
-import type { ToolDefinition } from "../tools/types.js";
+import {
+  agenteQueAtiende,
+  esquemasDeHerramientas,
+  handlerDeHerramienta,
+  buscarHerramienta,
+} from "../../agentes/_registro.js";
+import { leerPromptBase } from "../../agentes/_tipos.js";
 import { openrouter, LLM_MODEL } from "../llm/openrouter.js";
 import { insertMensaje, listMensajes } from "../db/mensajesRepo.js";
 import { getEstado, setLastAgent } from "../db/estadoRepo.js";
-import { enrutarMensaje } from "../orchestrator/route.js";
+import { enrutarMensaje } from "../../agentes/orquestador/route.js";
 import { enviarSeguro } from "./enviar.js";
 import { programarRecontacto, cancelarRecontacto } from "../queue/recontactoQueue.js";
 import { intentarComando } from "./comandos.js";
 import { bloqueDeCorrecciones } from "../db/correccionesRepo.js";
 
-// [2026-09-10] Prompt base (persona/tono/reglas que valen para TODOS los agentes) + un prompt
-// específico por agente, según lo que decida el orquestador (decision.agente, ver
-// prompts/orquestador.md). `informacion`, `reservas` y `pagos` siguen compartiendo prompt y
-// herramientas (prompts/system.md) hasta que se separen de verdad (ver prompts/agentes/*.md);
-// `postventa` ya tiene su propio prompt (prompts/agentes/postventa.md) y su propio set de
-// herramientas (toolsPostventa, ver src/core/tools/registry.ts).
-const PROMPT_BASE = fs.readFileSync(path.join(process.cwd(), "prompts", "base.md"), "utf-8");
-const PROMPT_VENTAS = fs.readFileSync(path.join(process.cwd(), "prompts", "system.md"), "utf-8");
-const PROMPT_POSTVENTA = fs.readFileSync(
-  path.join(process.cwd(), "prompts", "agentes", "postventa.md"),
-  "utf-8"
-);
-
-interface ConfigAgente {
-  promptEspecifico: string;
-  tools: ToolDefinition[];
-}
-
-const CONFIG_VENTAS: ConfigAgente = { promptEspecifico: PROMPT_VENTAS, tools: toolsVentas };
-const CONFIG_POSTVENTA: ConfigAgente = { promptEspecifico: PROMPT_POSTVENTA, tools: toolsPostventa };
-
-// reservas y pagos: ver prompts/agentes/reservas.md y pagos.md — todavía [PENDIENTE] (no tienen
-// herramientas propias construidas), así que por ahora los sigue atendiendo el mismo prompt y
-// las mismas herramientas de ventas. Cuando se construyan, cada uno suma su entrada acá.
-const CONFIG_POR_AGENTE: Record<string, ConfigAgente> = {
-  informacion: CONFIG_VENTAS,
-  reservas: CONFIG_VENTAS,
-  pagos: CONFIG_VENTAS,
-  postventa: CONFIG_POSTVENTA,
-};
-
-function configDeAgente(agente: string): ConfigAgente {
-  return CONFIG_POR_AGENTE[agente] ?? CONFIG_VENTAS;
-}
+// [2026-09-10] Cada agente (un "bot") vive en su propia carpeta bajo src/agentes/ con su prompt
+// y sus herramientas, y se registra solo (ver src/agentes/_registro.ts). Este archivo ya no sabe
+// qué bots existen: le pregunta al registro cuál atiende la decisión del orquestador. Así, sumar
+// o cambiar un bot no obliga a tocar el pipeline — que era uno de los dos archivos que todos
+// tenían que editar, y por lo tanto conflicto de merge asegurado entre ramas.
+//
+// El prompt base (src/agentes/_base.md) trae la persona, el tono y las reglas que valen para
+// todos los agentes, y va SIEMPRE antes del prompt específico del agente del turno.
+const PROMPT_BASE = leerPromptBase();
 
 /**
  * [2026-09-08] El modelo no sabe qué día es hoy, y ahora lo necesita: tiene que convertir
@@ -178,7 +156,7 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
   await insertMensaje({ canal: event.channel, external_id: event.externalId, role: "user", content: event.text ?? "" });
 
   // El orquestador decide a qué agente le toca este turno ANTES de gastar un hop de LLM
-  // "de verdad" — nunca le habla al cliente, solo enruta (ver prompts/orquestador.md).
+  // "de verdad" — nunca le habla al cliente, solo enruta (ver src/agentes/orquestador/prompt.md).
   const estado = await getEstado(event.channel, event.externalId);
   const decision = await enrutarMensaje({ mensaje: event.text ?? "", lastAgent: estado.last_agent });
   await setLastAgent(event.channel, event.externalId, decision.agente);
@@ -200,8 +178,18 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
     return;
   }
 
-  // Qué prompt y qué herramientas le tocan a este turno, según decidió el orquestador.
-  const config = configDeAgente(decision.agente);
+  // Qué bot le toca a este turno, según decidió el orquestador. El registro resuelve el
+  // "atiende" de cada agente y cae al de ventas si ese tema todavía no tiene bot propio.
+  const agente = await agenteQueAtiende(decision.agente);
+  if (!agente) {
+    // No hay ningún agente cargado (algo muy roto en src/agentes/): el cliente no puede quedar
+    // sin respuesta, así que se le manda el mensaje de respaldo y queda el error en el log.
+    console.error(`[runTurn] no hay ningún agente disponible para "${decision.agente}" — ${key}`);
+    history.push({ role: "assistant", content: FALLBACK_REPLY });
+    historyByUser.set(key, history);
+    await enviarSeguro(adapter, event.externalId, FALLBACK_REPLY, key);
+    return;
+  }
 
   // Lo que el equipo le fue enseñando por WhatsApp con /corrige. Se lee una vez por turno y se
   // le pasa como bloque de sistema, así una corrección aplica a todos los clientes desde el
@@ -233,12 +221,12 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
         model: LLM_MODEL,
         messages: [
           { role: "system", content: PROMPT_BASE },
-          { role: "system", content: config.promptEspecifico },
+          { role: "system", content: agente.prompt },
           { role: "system", content: fechaDeHoyEnColombia() },
           ...(correcciones ? [{ role: "system", content: correcciones }] : []),
           ...historialParaModelo(history),
         ],
-        tools: await getToolSchemas(config.tools),
+        tools: await esquemasDeHerramientas(agente.herramientas),
         temperature: TEMPERATURA_AGENTE,
       });
     } catch (err) {
@@ -254,11 +242,11 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
       for (const call of choice.tool_calls) {
         console.log(`[runTurn] Llamando herramienta "${call.function.name}" (hop ${hops}) — ${key}`);
         try {
-          const handler = getToolHandler(call.function.name, config.tools);
+          const handler = handlerDeHerramienta(call.function.name, agente.herramientas);
           const args = JSON.parse(call.function.arguments || "{}");
           const toolResult = await handler(args, { channel: event.channel, externalId: event.externalId });
 
-          const definicion = getTool(call.function.name, config.tools);
+          const definicion = buscarHerramienta(call.function.name, agente.herramientas);
           const redaccionLibre = Boolean(definicion?.permitirRedaccion) && Boolean(toolResult.reply_to_user);
 
           history.push({
