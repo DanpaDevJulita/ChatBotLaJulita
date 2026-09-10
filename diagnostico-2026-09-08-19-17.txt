@@ -1,0 +1,1170 @@
+REPORTE DE DIAGNÓSTICO — bot La Julita
+fecha: 2026-09-08T19:17:48.434Z
+archivo: C:\Users\pataq\OneDrive\Documentos\LaJulita\ProjectChatBot\bot-lajulita\diagnostico-2026-09-08-19-17.txt
+
+========================================================================================
+== 1. CONFIGURACIÓN (.env)
+========================================================================================
+  [OK]       OPENROUTER_API_KEY definida (largo 73)
+  [OK]       OPENROUTER_MODEL = deepseek/deepseek-v4-flash-0731
+  [OK]       SUPABASE_URL = https://wcjoqkvkdnueadkcbupr.supabase.co
+  [OK]       SUPABASE_SERVICE_ROLE_KEY definida (largo 41)
+  [OK]       REDIS_URL definida (largo 112)
+  [OK]       YCLOUD_API_KEY definida (largo 32)
+  [OK]       YCLOUD_WEBHOOK_SECRET definida (largo 38)
+  [OK]       YCLOUD_FROM_PHONE_NUMBER = +573246166787
+  [AVISO]    ORCHESTRATOR_MODEL sin definir (se usa el valor por defecto del código)
+  [AVISO]    YCLOUD_DRY_RUN sin definir (se usa el valor por defecto del código)
+  [AVISO]    YCLOUD_BASE_URL sin definir (se usa el valor por defecto del código)
+  [AVISO]    PORT sin definir (se usa el valor por defecto del código)
+  [AVISO]    ADMIN_PASSWORD sin definir (se usa el valor por defecto del código)
+  [AVISO]    SESSION_SECRET sin definir (se usa el valor por defecto del código)
+
+  modelo de los agentes    : deepseek/deepseek-v4-flash-0731
+  modelo del orquestador   : deepseek/deepseek-v4-flash-0731
+  supabaseConfigured       : true
+  YCLOUD_DRY_RUN activo    : false
+  [PROBLEMA] ADMIN_PASSWORD vacío: el panel /admin queda sin contraseña real
+  [PROBLEMA] SESSION_SECRET vacío: las cookies del panel se firman con el valor por defecto del código
+
+========================================================================================
+== 2. SUPABASE — existencia de tablas y conteo de filas
+========================================================================================
+  [OK]       clase_domo: 3 filas (1734ms)
+  [OK]       domos: 8 filas (540ms)
+  [OK]       planes: 20 filas (383ms)
+  [OK]       tipo_adicional: 6 filas (426ms)
+  [OK]       adicionales: 15 filas (374ms)
+  [OK]       tipo_documento: 0 filas (715ms)
+  [OK]       clientes: 0 filas (466ms)
+  [OK]       estado: 0 filas (413ms)
+  [OK]       reservas: 0 filas (421ms)
+  [OK]       acompanantes: 0 filas (374ms)
+  [OK]       adicionales_reserva: 0 filas (399ms)
+  [OK]       mensajes: 24 filas (381ms)
+  [OK]       estado_conversacion: 1 filas (399ms)
+  [OK]       faq: 0 filas (368ms)
+  [OK]       configuracion: null filas (377ms)
+  [OK]       fechas_bloqueadas: null filas (358ms)
+  [OK]       conversaciones: 1 filas (384ms)
+
+========================================================================================
+== 3. SUPABASE — datos reales que usa el bot
+========================================================================================
+  filas totales en planes: 20
+   - id=2 activo=true nombre="PLAN BASICO UNA NOCHE PARA DOS PERSONAS" cap=undefined semana=569000 finde=690000 puente=790000
+   - id=3 activo=true nombre="PLAN DESCANSO PREMIUM PARA DOS PERSONAS" cap=undefined semana=790000 finde=890000 puente=990000
+   - id=21 activo=true nombre="PLAN CLASICO VIP UNA NOCHE DOS PERSONAS" cap=undefined semana=1279000 finde=1379000 puente=1479000
+   - id=22 activo=true nombre="PLAN CONFORT UNA NOCHE PARA DOS PERSONAS" cap=undefined semana=959000 finde=1089000 puente=0
+   - id=23 activo=true nombre="PLAN LUJO UNA NOCHE PARA DOS PERSONAS" cap=undefined semana=999000 finde=1029000 puente=0
+   - id=24 activo=true nombre="PLANES BASICO DOS NOCHES DOS PERSONAS" cap=undefined semana=769000 finde=879000 puente=1139000
+   - id=25 activo=true nombre="PLAN INTERMEDIO DOS NOCHES DOS PERSONAS" cap=undefined semana=1019000 finde=1139000 puente=1419000
+   - id=26 activo=true nombre="PLAN PREMIUM DOS NOCHES DOS PERSONAS" cap=undefined semana=1139000 finde=1259000 puente=1529000
+   - id=27 activo=true nombre="PLAN PARAISO UNA NOCHE DOS PERSONAS" cap=undefined semana=1490000 finde=1690000 puente=0
+   - id=28 activo=true nombre="PLAN UNA PERSONA UNA NOCHE DOMO CLASICO O CHALET" cap=undefined semana=339000 finde=679000 puente=779000
+   - id=29 activo=true nombre="PLAN UNA PERSONA UNA NOCHE DOMO DELUXE" cap=undefined semana=5690000 finde=1090000 puente=1139000
+   - id=30 activo=true nombre="PLAN FAMILIAR 3 PERSONAS" cap=undefined semana=590000 finde=760000 puente=860000
+   - id=31 activo=true nombre="PLAN FAMILIAR 4 PERSONAS" cap=undefined semana=660000 finde=830000 puente=930000
+   - id=32 activo=true nombre="PLAN AMIGAS 3 PERSONAS" cap=undefined semana=590000 finde=760000 puente=930000
+   - id=33 activo=true nombre="PASADIA BASICO ENTRE SEMANA (LUNES A VIERNES)" cap=undefined semana=3690000 finde=0 puente=0
+   - id=34 activo=true nombre="PASADIA INTERMEDIO DOS PERSONAS ENTRE SEMANA" cap=undefined semana=419000 finde=0 puente=0
+   - id=35 activo=true nombre="PASADIA PREMIUM DOS PERSONAS ENTRE SEMANA" cap=undefined semana=639000 finde=0 puente=0
+   - id=36 activo=true nombre="PASADIA BASICO DOMINGO NO FESTIVOS DOS PERSONAS" cap=undefined semana=0 finde=390000 puente=0
+   - id=37 activo=true nombre="PASADIA INTERMEDIO DOMINGO NO FESTIVOS DOS PERSONAS" cap=undefined semana=0 finde=549000 puente=0
+   - id=38 activo=true nombre="PASADIA PREMIUM DOS PERSONAS DOMINGO NO FESTIVOS" cap=undefined semana=0 finde=649000 puente=0
+  [OK]       20 plan(es) con activo=true
+  planesRepo.list(true) devolvió 20 fila(s)
+  adicionalesRepo.list(true) -> [{"id":1,"nombre":"SPA","descripcion":"SPA PREMIUM DOS PERSONAS","precio":330000,"tipo_adicional_id":1,"estado":true},{"id":2,"nombre":"SPA","descripcion":"SPA INTERMEDIO DOS PERSONAS ","precio":310000,"tipo_adicional_id":1,"estado":true},{"id":3,"nombre":"SPA","descripcion":"SPA BASICO DOS PERSONAS
+  getConfiguracion() -> {}
+  listFaq() -> []
+
+========================================================================================
+== 4. HERRAMIENTAS — qué ve el modelo y qué devuelve cada una
+========================================================================================
+  herramientas REGISTRADAS (las que el modelo puede llamar): consultar_planes
+  esquemas enviados al modelo: ["consultar_planes"]
+  herramientas mencionadas en prompts/system.md: consultar_planes, preguntas_frecuentes, consultar_adicionales, consultar_horarios
+
+  --- consultar_planes (ACTIVA) (418ms) ---
+  reply_to_user: "PLAN BASICO UNA NOCHE PARA DOS PERSONAS: entre semana $ 569.000, fin de semana $ 690.000, fin de semana con puente $ 790.000 — Plan Básico una noche dos personas \r\nIncluye:\r\nBienvenida\r\nHabitación tipo domo clásico o chalet \r\nDesayuno\r\nMalla catamarán\r\nJacuzzi\r\nParlante bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nVentilador\r\nMinibar (consumo adicional)\r\n\r\nSi tomas el plan en el chalet tienes un servicio adicional de cinema privado\r\n\r\nCheck in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día\nPLAN DESCANSO PREMIUM PARA DOS PERSONAS: entre semana $ 790.000, fin de semana $ 890.000, fin de semana con puente $ 990.000 — Plan descanso Premium una noche para dos personas:\r\nIncluye:\r\nBienvenida\r\nHabitación tipo domo o Chalet \r\nDesayuno\r\nMalla catamarán\r\nJacuzzi\r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nVentilador\r\nMinibar (consumo adicional)\r\nDecoración básica: (Aviso metalizado pequeño, 9 globos (3 moños), Mesa decorada. \r\nCena: dos platos fuertes y dos bebidas (bebidas de hasta $10.000) \r\nSpa básico: Disfruta de nuestro Spa básico: un circuito en pareja que combina relajación y revitalización. Mientras uno de ustedes recibe un masaje individual de 30 minutos en la parte posterior de la espalda, cuello, brazos y piernas, el otro  disfruta de una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente. Luego cambian de camilla por otros 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia\r\n\r\nSi tomas el plan en el chalet tienes un servicio adicional de cinema privado\r\n\r\nCheck in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día\nPLAN CLASICO VIP UNA NOCHE DOS PERSONAS: entre semana $ 1.279.000, fin de semana $ 1.379.000, fin de semana con puente $ 1.479.000 — Plan clásico VIP\r\n\r\nIncluye:\r\nBienvenida \r\nGlamping tipo domo clásico o chalet\r\nCama Queen \r\nBaño privado con ducha caliente\r\nDesayuno\r\nMalla catamarán\r\nJacuzzi\r\nParlante Bluetooth\r\nParqueadero\r\nAcceso a quebrada natural\r\nVentilador\r\nMinibar (consumo adicional)\r\nFogata y kit de malvaviscos 🍡\r\nDecoración premium: (Aviso metalizado grande, 20 globos,  Mesa decorada, canasta picnic decorativa, corazones en la cama)\r\nElige una entrada (empanadas, salchipapa, papa a la francesa con queso cheddar)\r\nCena dos platos fuertes y dos bebidas \r\nTurco selvático 30 min\r\nSpa básico:  Disfruta de nuestro Spa básico: un circuito en pareja que combina relajación y revitalización. Mientras uno de ustedes recibe un masaje individual de 30 minutos en la parte posterior de la espalda, cuello, brazos y piernas, el otro  disfruta de una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente. Luego cambian de camilla por otros 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia\r\nTrío coctelería (eliges 3 cocteles y de cada uno te llegan 2).\r\nVideo recuerdo (se envía editado 3-5 días posterior a la toma)\r\nServicio a la habitación\r\n\r\n\r\nSi tomas el plan en el chalet tienes un servicio adicional de cinema privado (sin costo adicional por el cine)\r\n\r\nCheck-in (ingreso): Desde las 3 pm, máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día\nPLAN CONFORT UNA NOCHE PARA DOS PERSONAS: entre semana $ 959.000, fin de semana $ 1.089.000, fin de semana con puente $ 0 — Plan Confort una noche La Julita Deluxe\r\nIncluye:\r\nBienvenida\r\nCama flotante\r\npuerta panorámica de cristal \r\nbaño de lujo.\r\nDesayuno\r\nMalla catamarán\r\nJacuzzi\r\nParlante Bluetooth\r\nParqueadero\r\nAcceso a quebrada natural\r\nVentilador\r\nMinibar (consumo adicional)\r\nFogata\r\nServicio a la habitación \r\nTurco 30 minutos \r\nCheck in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día\nPLAN LUJO UNA NOCHE PARA DOS PERSONAS: entre semana $ 999.000, fin de semana $ 1.029.000, fin de semana con puente $ 0 — Plan Lujo una noche La Julita Deluxe\r\nIncluye:\r\nBienvenida\r\nCama flotante\r\nPuerta panorámica de cristal\r\nBaño de lujo.\r\nDesayuno\r\nMalla catamarán\r\nJacuzzi\r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nAcceso a quebrada natural\r\nVentilador\r\nMinibar (consumo adicional)\r\nDecoración básica: (Aviso metalizado pequeño, 9 globos (3 moños), Mesa decorada.\r\nTurco 20 minutos\r\nServicio a la habitación\r\nDos platos fuertes y dos jugos\r\n \r\nCheck in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día\nPLANES BASICO DOS NOCHES DOS PERSONAS: entre semana $ 769.000, fin de semana $ 879.000, fin de semana con puente $ 1.139.000 — Plan Básico dos noches\r\nIncluye:\r\n\r\nHabitación tipo domo clásico o Chalet \r\n2 Noches 3 días\r\nMalla catamarán\r\nJacuzzi (un uso) \r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nFogata\r\nVentilador\r\nMinibar (consumo adicional)\r\n\r\nSi tomas el plan en el chalet tienes un servicio adicional de cínema privado\r\nCheck in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día \nPLAN INTERMEDIO DOS NOCHES DOS PERSONAS: entre semana $ 1.019.000, fin de semana $ 1.139.000, fin de semana con puente $ 1.419.000 — Plan Intermedio dos noches\r\n \r\nHabitación tipo domo clásico o Chalet\r\n2 Noches 3 días\r\nMalla catamarán\r\nDesayuno\r\nJacuzzi (uno por noche)\r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nFogata\r\nVentilador\r\nMinibar (consumo adicional)\r\n \r\ndesayuno en el restaurante\r\n \r\nSi tomas el plan en el chalet tienes un servicio adicional de cinema privado\r\nCheck in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día\nPLAN PREMIUM DOS NOCHES DOS PERSONAS: entre semana $ 1.139.000, fin de semana $ 1.259.000, fin de semana con puente $ 1.529.000 — Plan premium dos noches\r\n\r\nBienvenida\r\nHabitación tipo domo clásico o Chalet \r\n2 Noches 3 días\r\nMalla catamarán\r\nDesayuno\r\nJacuzzi (dos dias)\r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nFogata\r\nVentilador\r\nMinibar (consumo adicional)\r\nAlmuerzo (dos platos fuertes y dos jugos naturales) segundo dia\r\nCena (dos platos fuertes y dos jugos naturales por noche)\r\n\r\nSi tomas el plan en el chalet tienes un servicio adicional de cínema privado\r\nAlimentacion en el restaurante\r\n\r\nCheck in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día\nPLAN PARAISO UNA NOCHE DOS PERSONAS: entre semana $ 1.490.000, fin de semana $ 1.690.000, fin de semana con puente $ 0 — Plan Paraíso una noche La Julita Deluxe\r\n\r\nIncluye:\r\n\r\nBienvenida.\r\nCama flotante.\r\nPuerta panorámica de cristal.\r\nBaño de lujo.\r\nDesayuno.\r\nMalla catamarán.\r\nJacuzzi.\r\nParlante bluetooth.\r\nParqueadero.\r\nAcceso a quebrada natural.\r\nVentilador.\r\nMinibar (consumo adicional).\r\nFogata y kit masmelos.\r\nDecoración premium: (Aviso metalizado grande, 20 globos,  Mesa decorada, canasta picnic decorativa, corazones en la cama, botella vino o champaña).\r\nElige una entrada (empanadas, salchipapa, papa a la francesa con queso cheddar).\r\nCena dos platos fuertes y dos bebidas.\r\nSpa premium: Sumérgete en nuestro Spa premium para parejas: Mientras uno disfruta de un masaje de 30 minutos en espalda, cuello, brazos y piernas, el otro recibe una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente, cambian de camilla por otros 30 minutos. Luego, ambos se sumergen en nuestra quebrada de agua fría, pasan al jacuzzi termorregulado y terminan la experiencia en nuestro turco selvático por 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia\r\nTrío coctelería (eliges 3 cocteles y de cada uno te llegan 2).\r\nVideo recuerdo (se envía editado 3-5 días posterior a la toma)\r\nServicio a la habitación.\r\n\r\nCheck in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día\nPLAN UNA PERSONA UNA NOCHE DOMO CLASICO O CHALET: entre semana $ 339.000, fin de semana $ 679.000, fin de semana con puente $ 779.000 — Plan para una persona una noche\r\nIncluye:\r\nBienvenida\r\nHabitación tipo domo clásico, Chalet o domo deluxe \r\nDesayuno\r\nMalla catamarán\r\nJacuzzi\r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nVentilador\r\nMinibar (consumo adicional)\r\n\r\nSi tomas el plan en el chalet tienes un servicio adicional de cinema privado\r\n\r\nCheck in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día \r\n\r\nValor para una persona una noche:\r\nEntre semana domo clásico o chalet (lunes a jueves): $339.000\r\nDomo  Deluxe (lunes a jueves) $569.000\r\nFin de semana (viernes, sábado o domingo) domo clásico o chalet: $679.000\r\nDomo  deluxe: $1.090.000\r\nFin de semana festivo (viernes, sábado o domingo) domo clásico chalet: $779.000\r\nDomo Deluxe $1.139.000\r\nPRECIO SIN IVA\nPLAN UNA PERSONA UNA NOCHE DOMO DELUXE: entre semana $ 5.690.000, fin de semana $ 1.090.000, fin de semana con puente $ 1.139.000 — Plan para una persona una noche\r\nIncluye:\r\nBienvenida\r\nHabitación tipo domo clásico, Chalet o domo deluxe \r\nDesayuno\r\nMalla catamarán\r\nJacuzzi\r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nVentilador\r\nMinibar (consumo adicional)\r\n\r\nSi tomas el plan en el chalet tienes un servicio adicional de cinema privado\r\n\r\nCheck in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día\nPLAN FAMILIAR 3 PERSONAS: entre semana $ 590.000, fin de semana $ 760.000, fin de semana con puente $ 860.000 — Plan Familia una noche\r\n\r\nIncluye:\r\nBienvenida\r\nHabitación tipo domo clasico\r\nDesayuno para 3 personas\r\nCama Queen\r\nSofá cama\r\nMalla catamarán\r\nJacuzzi\r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nVentilador\r\nMinibar (consumo adicional)\r\n\r\n*Desayuno en el restaurante*\r\n\r\nCheck in (ingreso): Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día\r\n\r\nValor para tres personas una noche (padres e hijos)\r\nEntre semana (lunes a viernes): $590.000\r\nFin de semana (sábado o domingo): $760.000\r\nSábado o domingo puente festivo $860.000\r\n\r\nMáximo 4 personas (dos adultos y dos niños)\r\n>3 años $50.000\r\n>5 años $70.000\r\n\r\nPrecio sin IVA\nPLAN FAMILIAR 4 PERSONAS: entre semana $ 660.000, fin de semana $ 830.000, fin de semana con puente $ 930.000 — Plan Familia una noche\r\n\r\nIncluye:\r\nBienvenida\r\nHabitación tipo domo clasico\r\nDesayuno para 3 personas\r\nCama Queen\r\nSofá cama\r\nMalla catamarán\r\nJacuzzi\r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nVentilador\r\nMinibar (consumo adicional)\r\n\r\n*Desayuno en el restaurante*\r\n\r\nCheck in (ingreso): Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día\r\n\r\nValor para tres personas una noche (padres e hijos)\r\nEntre semana (lunes a viernes): $590.000\r\nFin de semana (sábado o domingo): $760.000\r\nSábado o domingo puente festivo $860.000\r\n\r\nMáximo 4 personas (dos adultos y dos niños)\r\n>3 años $50.000\r\n>5 años $70.000\r\n\r\nPrecio sin IVA\nPLAN AMIGAS 3 PERSONAS: entre semana $ 590.000, fin de semana $ 760.000, fin de semana con puente $ 930.000 — Plan amigas una noche\r\n \r\nIncluye:\r\nBienvenida\r\nHabitación tipo domo clásico\r\nDesayuno para 3 personas\r\nCama Queen\r\nSofá cama\r\nMalla catamarán\r\nJacuzzi\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nFogata\r\nVentilador\r\nMinibar (consumo adicional)\r\n \r\n*Desayuno en el restaurante*\r\n \r\nCheck in (ingreso): Desde las 3 pm máxima hora de llegada 8:00 pm\r\nCheck out (salida): Medio día\r\n \r\nValor para tres personas una noche:\r\n\r\nEntre semana (lunes a viernes): $590.000\r\nFin de semana (sábado o domingo): $790.000\r\nSábado o domingo puente festivo $890.000\r\n \r\n Precio sin IVA\nPASADIA BASICO ENTRE SEMANA (LUNES A VIERNES): entre semana $ 3.690.000, fin de semana $ 0, fin de semana con puente $ 0 — PASADIA BÁSICO:\r\n\r\nHabitación tipo domo clasico o Chalet \r\nMalla catamarán\r\nJacuzzi\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nVentilador\r\nMinibar (consumo adicional)\r\nAlmuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)\r\n\r\nCheck in (ingreso):Desde 9:00 am\r\nCheck out (salida): 5:00 pm (del mismo dia)\nPASADIA INTERMEDIO DOS PERSONAS ENTRE SEMANA: entre semana $ 419.000, fin de semana $ 0, fin de semana con puente $ 0 — PASADÍA INTERMEDIO:\r\n\r\nBienvenida\r\nHabitación tipo domo clasico o Chalet \r\nMalla catamarán\r\nJacuzzi\r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nFogata\r\nVentilador\r\nMinibar (consumo adicional)\r\nAlmuerzo: Dos platos fuertes y dos jugos naturales (en el restaurante)\r\n\r\nCheck in (ingreso):Desde 9:00 am\r\nCheck out (salida): 7:00 pm (del mismo dia)\nPASADIA PREMIUM DOS PERSONAS ENTRE SEMANA: entre semana $ 639.000, fin de semana $ 0, fin de semana con puente $ 0 — PASADIA PREMIUM:\r\n\r\nBienvenida\r\nHabitación tipo domo deluxe\r\nMalla catamarán\r\nJacuzzi\r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nFogata\r\nVentilador\r\nMinibar (consumo adicional)\r\nAlmuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)\r\nSpa Básico\r\n\r\n\r\nCheck in (ingreso):Desde 9:00 am\r\nCheck out (salida): 8:00 pm (del mismo dia)\nPASADIA BASICO DOMINGO NO FESTIVOS DOS PERSONAS: entre semana $ 0, fin de semana $ 390.000, fin de semana con puente $ 0 — PASADIA BÁSICO DOMINGO NO FESTIVO\r\n\r\nHabitación tipo domo o Chalet entrega 2:00 pm\r\nMalla catamarán\r\nJacuzzi\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nVentilador\r\nMinibar (consumo adicional)\r\nAlmuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)\r\nCircuito relajante de inmersion en quebrada natural y 30 minutos de turco al llegar \r\n\r\n\r\nCheck in (ingreso):Desde 10: 00 am\r\nCheck out (salida): 6:00 pm (del mismo dia)\nPASADIA INTERMEDIO DOMINGO NO FESTIVOS DOS PERSONAS: entre semana $ 0, fin de semana $ 549.000, fin de semana con puente $ 0 — PASADIA INTERMEDIO DOMINGO :\r\n\r\nHabitación tipo domo o Chalet (se entrega 2:00 pm) \r\nMalla catamarán\r\nJacuzzi\r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nFogata\r\nVentilador\r\nMinibar (consumo adicional)\r\nAlmuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)\r\nSpa básico en pareja (al llegar se toma) \r\n\r\n\r\nCheck in (ingreso):Desde 10:00 am\r\nCheck out (salida): 7:00 pm (del mismo dia)\nPASADIA PREMIUM DOS PERSONAS DOMINGO NO FESTIVOS: entre semana $ 0, fin de semana $ 649.000, fin de semana con puente $ 0 — PASADIA PREMIUM DOMINGO NO FESTIVO:\r\n\r\nHabitación tipo domo clásico o chalet (se entrega 2:00 pm) \r\nMalla catamarán\r\nJacuzzi\r\nFogata\r\nParlante Bluetooth\r\nParqueadero\r\nJuegos de mesa\r\nBaño privado con ducha caliente\r\nAcceso a quebrada natural\r\nFogata\r\nVentilador\r\nMinibar (consumo adicional)\r\nAlmuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)\r\nSpa intermedio en pareja (al llegar se toma) \r\n       \r\nCheck in (ingreso):Desde 10:00 am\r\nCheck out (salida): 7:00 pm (del mismo dia)"
+
+  --- consultar_adicionales (desactivada) (250ms) ---
+  reply_to_user: "SPA: $ 330.000 — SPA PREMIUM DOS PERSONAS\nSPA: $ 310.000 — SPA INTERMEDIO DOS PERSONAS \nSPA: $ 210.000 — SPA BASICO DOS PERSONAS \nSPA: $ 99.000 — SPA BASICO UNA PERSONA\nSPA: $ 149.000 — SPA INTERMEDO UNA PERSONA\nSPA: $ 179.000 — SPA PREMIUM UNA PERSONA \nDECORACION: $ 50.000 — DECORACION BASICA\nDECORACION: $ 80.000 — DECORACION INTERMEDIA\nDECORACION: $ 140.000 — DECORACION PREMIUM\nCINE: $ 60.000 — CINE EN LAS MONTAÑAS (CINE EXTERNO)\nVIDEO: $ 60.000 — VIDEO RECUERDO 3 TOMAS CON CELULAR\nVIDEO: $ 100.000 — VIDEO RECUERDO 3 TOMAS CON DRONE\nCUATRIMOTO: $ 190.000 — CUATRIMOTO DOS HORAS DOS PERSONAS \nTURCO: $ 70.000 — TURCO 30 MINUTOS DOS PERSONAS\nTURCO: $ 100.000 — TURCO 60 MINUTOS DOS PERSONAS"
+
+  --- consultar_horarios (desactivada) (296ms) ---
+  reply_to_user: "Todavía no tengo esos horarios cargados — dale la pregunta al equipo de La Julita."
+
+  --- preguntas_frecuentes (desactivada) (1ms) ---
+  reply_to_user: "Todavía no tengo esa información — dale la pregunta al equipo de La Julita."
+
+========================================================================================
+== 5. MODELO (OpenRouter) — ¿existe el modelo?, ¿responde?, ¿llama la herramienta?
+========================================================================================
+  catálogo de OpenRouter: 431 modelos (417ms)
+  [OK]       el modelo configurado existe: deepseek/deepseek-v4-flash-0731
+  [OK]       llamada simple al modelo OK (3547ms) — respuesta: "Hola, bienvenido a La Julita 🤗 ¿En qué te puedo ayudar?"
+
+  Prueba de tool-calling: 6 frases x 2 repeticiones
+   [llamó consultar_planes] "quiero ver los planes y precios" (1958ms)
+   [llamó consultar_planes] "quiero ver los planes y precios" (1116ms)
+   [llamó consultar_planes] "Hola quiero conocer los planes" (1457ms)
+   [llamó consultar_planes] "Hola quiero conocer los planes" (1068ms)
+   [llamó consultar_planes] "si quiero conocer que planes tienes" (1423ms)
+   [llamó consultar_planes] "si quiero conocer que planes tienes" (1107ms)
+   [llamó consultar_planes] "cuanto vale una noche?" (1050ms)
+   [llamó consultar_planes] "cuanto vale una noche?" (1088ms)
+   [llamó consultar_planes] "que domos tienen y a que precio" (1320ms)
+   [llamó consultar_planes] "que domos tienen y a que precio" (1064ms)
+   [llamó consultar_planes] "cuales son los precios de fin de semana" (1183ms)
+   [llamó consultar_planes] "cuales son los precios de fin de semana" (1278ms)
+
+  RESULTADO tool-calling: llamó la herramienta en 12/12 intentos
+  [OK]       el modelo llamó la herramienta en todos los intentos
+
+========================================================================================
+== 6. ORQUESTADOR — enrutamiento y pegajosidad
+========================================================================================
+   [ok ] last_agent=null | "Hola"
+          -> agente=informacion (esperado: informacion) motivo="Primer mensaje, solo saluda; intención no clara." (1371ms)
+   [ok ] last_agent=null | "quiero conocer los planes y precios"
+          -> agente=informacion (esperado: informacion|reservas) motivo="Primer mensaje, pide conocer planes y precios del glamping (intención general, aún no menciona fechas ni quiere cotizar)." (1215ms)
+   [ok ] last_agent=null | "donde estan ubicados?"
+          -> agente=informacion (esperado: informacion) motivo="Consulta sobre la ubicación del glamping, primera vez que escribe." (1190ms)
+   [ok ] last_agent=null | "tienen disponible el 20 de diciembre para 4 personas?"
+          -> agente=reservas (esperado: reservas) motivo="Consulta de disponibilidad con fecha y número de personas: intención de reservar" (1229ms)
+   [ok ] last_agent=reservas | "como pago el anticipo?"
+          -> agente=pagos (esperado: pagos) motivo="cliente pregunta cómo pagar el anticipo de su reserva" (1080ms)
+   [ok ] last_agent=null | "necesito cambiar la fecha de mi reserva ya pagada"
+          -> agente=postventa (esperado: postventa) motivo="Cliente tiene reserva confirmada y pagada y quiere cambiar la fecha" (1245ms)
+   [ok ] last_agent=null | "quiero hablar con una persona real"
+          -> agente=humano (esperado: humano) motivo="El cliente pide explícitamente hablar con una persona real." (1017ms)
+   [ok ] last_agent=reservas | "somos 4"
+          -> agente=reservas (esperado: reservas (pegajosidad)) motivo="Sigue hilo de reserva; responde cantidad de personas (somos 4)." (1309ms)
+   [ok ] last_agent=pagos | "si"
+          -> agente=pagos (esperado: pagos (pegajosidad)) motivo="Mensaje ambiguo corto, sigue el hilo anterior en pagos" (1035ms)
+   [ok ] last_agent=reservas | "aceptan mascotas?"
+          -> agente=informacion (esperado: informacion) motivo="Pregunta general sobre si aceptan mascotas, no relacionada con la reserva en curso." (1539ms)
+
+========================================================================================
+== 7. PIPELINE COMPLETO (handleInbound) con adaptador falso — sin mandar WhatsApp
+========================================================================================
+
+   CLIENTE: Hola
+   BOT    : ¡Hola! 👋 Qué gusto saludarte.
+
+Soy del equipo de La Julita, ¿en qué te puedo ayudar?
+   (3957ms)
+
+   CLIENTE: quiero conocer los planes y precios
+   BOT    : PLAN BASICO UNA NOCHE PARA DOS PERSONAS: entre semana $ 569.000, fin de semana $ 690.000, fin de semana con puente $ 790.000 — Plan Básico una noche dos personas 
+Incluye:
+Bienvenida
+Habitación tipo domo clásico o chalet 
+Desayuno
+Malla catamarán
+Jacuzzi
+Parlante bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+
+Si tomas el plan en el chalet tienes un servicio adicional de cinema privado
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN DESCANSO PREMIUM PARA DOS PERSONAS: entre semana $ 790.000, fin de semana $ 890.000, fin de semana con puente $ 990.000 — Plan descanso Premium una noche para dos personas:
+Incluye:
+Bienvenida
+Habitación tipo domo o Chalet 
+Desayuno
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+Decoración básica: (Aviso metalizado pequeño, 9 globos (3 moños), Mesa decorada. 
+Cena: dos platos fuertes y dos bebidas (bebidas de hasta $10.000) 
+Spa básico: Disfruta de nuestro Spa básico: un circuito en pareja que combina relajación y revitalización. Mientras uno de ustedes recibe un masaje individual de 30 minutos en la parte posterior de la espalda, cuello, brazos y piernas, el otro  disfruta de una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente. Luego cambian de camilla por otros 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia
+
+Si tomas el plan en el chalet tienes un servicio adicional de cinema privado
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN CLASICO VIP UNA NOCHE DOS PERSONAS: entre semana $ 1.279.000, fin de semana $ 1.379.000, fin de semana con puente $ 1.479.000 — Plan clásico VIP
+
+Incluye:
+Bienvenida 
+Glamping tipo domo clásico o chalet
+Cama Queen 
+Baño privado con ducha caliente
+Desayuno
+Malla catamarán
+Jacuzzi
+Parlante Bluetooth
+Parqueadero
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+Fogata y kit de malvaviscos 🍡
+Decoración premium: (Aviso metalizado grande, 20 globos,  Mesa decorada, canasta picnic decorativa, corazones en la cama)
+Elige una entrada (empanadas, salchipapa, papa a la francesa con queso cheddar)
+Cena dos platos fuertes y dos bebidas 
+Turco selvático 30 min
+Spa básico:  Disfruta de nuestro Spa básico: un circuito en pareja que combina relajación y revitalización. Mientras uno de ustedes recibe un masaje individual de 30 minutos en la parte posterior de la espalda, cuello, brazos y piernas, el otro  disfruta de una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente. Luego cambian de camilla por otros 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia
+Trío coctelería (eliges 3 cocteles y de cada uno te llegan 2).
+Video recuerdo (se envía editado 3-5 días posterior a la toma)
+Servicio a la habitación
+
+
+Si tomas el plan en el chalet tienes un servicio adicional de cinema privado (sin costo adicional por el cine)
+
+Check-in (ingreso): Desde las 3 pm, máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN CONFORT UNA NOCHE PARA DOS PERSONAS: entre semana $ 959.000, fin de semana $ 1.089.000, fin de semana con puente $ 0 — Plan Confort una noche La Julita Deluxe
+Incluye:
+Bienvenida
+Cama flotante
+puerta panorámica de cristal 
+baño de lujo.
+Desayuno
+Malla catamarán
+Jacuzzi
+Parlante Bluetooth
+Parqueadero
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+Fogata
+Servicio a la habitación 
+Turco 30 minutos 
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN LUJO UNA NOCHE PARA DOS PERSONAS: entre semana $ 999.000, fin de semana $ 1.029.000, fin de semana con puente $ 0 — Plan Lujo una noche La Julita Deluxe
+Incluye:
+Bienvenida
+Cama flotante
+Puerta panorámica de cristal
+Baño de lujo.
+Desayuno
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+Decoración básica: (Aviso metalizado pequeño, 9 globos (3 moños), Mesa decorada.
+Turco 20 minutos
+Servicio a la habitación
+Dos platos fuertes y dos jugos
+ 
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLANES BASICO DOS NOCHES DOS PERSONAS: entre semana $ 769.000, fin de semana $ 879.000, fin de semana con puente $ 1.139.000 — Plan Básico dos noches
+Incluye:
+
+Habitación tipo domo clásico o Chalet 
+2 Noches 3 días
+Malla catamarán
+Jacuzzi (un uso) 
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+
+Si tomas el plan en el chalet tienes un servicio adicional de cínema privado
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día 
+PLAN INTERMEDIO DOS NOCHES DOS PERSONAS: entre semana $ 1.019.000, fin de semana $ 1.139.000, fin de semana con puente $ 1.419.000 — Plan Intermedio dos noches
+ 
+Habitación tipo domo clásico o Chalet
+2 Noches 3 días
+Malla catamarán
+Desayuno
+Jacuzzi (uno por noche)
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+ 
+desayuno en el restaurante
+ 
+Si tomas el plan en el chalet tienes un servicio adicional de cinema privado
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN PREMIUM DOS NOCHES DOS PERSONAS: entre semana $ 1.139.000, fin de semana $ 1.259.000, fin de semana con puente $ 1.529.000 — Plan premium dos noches
+
+Bienvenida
+Habitación tipo domo clásico o Chalet 
+2 Noches 3 días
+Malla catamarán
+Desayuno
+Jacuzzi (dos dias)
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+Almuerzo (dos platos fuertes y dos jugos naturales) segundo dia
+Cena (dos platos fuertes y dos jugos naturales por noche)
+
+Si tomas el plan en el chalet tienes un servicio adicional de cínema privado
+Alimentacion en el restaurante
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN PARAISO UNA NOCHE DOS PERSONAS: entre semana $ 1.490.000, fin de semana $ 1.690.000, fin de semana con puente $ 0 — Plan Paraíso una noche La Julita Deluxe
+
+Incluye:
+
+Bienvenida.
+Cama flotante.
+Puerta panorámica de cristal.
+Baño de lujo.
+Desayuno.
+Malla catamarán.
+Jacuzzi.
+Parlante bluetooth.
+Parqueadero.
+Acceso a quebrada natural.
+Ventilador.
+Minibar (consumo adicional).
+Fogata y kit masmelos.
+Decoración premium: (Aviso metalizado grande, 20 globos,  Mesa decorada, canasta picnic decorativa, corazones en la cama, botella vino o champaña).
+Elige una entrada (empanadas, salchipapa, papa a la francesa con queso cheddar).
+Cena dos platos fuertes y dos bebidas.
+Spa premium: Sumérgete en nuestro Spa premium para parejas: Mientras uno disfruta de un masaje de 30 minutos en espalda, cuello, brazos y piernas, el otro recibe una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente, cambian de camilla por otros 30 minutos. Luego, ambos se sumergen en nuestra quebrada de agua fría, pasan al jacuzzi termorregulado y terminan la experiencia en nuestro turco selvático por 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia
+Trío coctelería (eliges 3 cocteles y de cada uno te llegan 2).
+Video recuerdo (se envía editado 3-5 días posterior a la toma)
+Servicio a la habitación.
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN UNA PERSONA UNA NOCHE DOMO CLASICO O CHALET: entre semana $ 339.000, fin de semana $ 679.000, fin de semana con puente $ 779.000 — Plan para una persona una noche
+Incluye:
+Bienvenida
+Habitación tipo domo clásico, Chalet o domo deluxe 
+Desayuno
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+
+Si tomas el plan en el chalet tienes un servicio adicional de cinema privado
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día 
+
+Valor para una persona una noche:
+Entre semana domo clásico o chalet (lunes a jueves): $339.000
+Domo  Deluxe (lunes a jueves) $569.000
+Fin de semana (viernes, sábado o domingo) domo clásico o chalet: $679.000
+Domo  deluxe: $1.090.000
+Fin de semana festivo (viernes, sábado o domingo) domo clásico chalet: $779.000
+Domo Deluxe $1.139.000
+PRECIO SIN IVA
+PLAN UNA PERSONA UNA NOCHE DOMO DELUXE: entre semana $ 5.690.000, fin de semana $ 1.090.000, fin de semana con puente $ 1.139.000 — Plan para una persona una noche
+Incluye:
+Bienvenida
+Habitación tipo domo clásico, Chalet o domo deluxe 
+Desayuno
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+
+Si tomas el plan en el chalet tienes un servicio adicional de cinema privado
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN FAMILIAR 3 PERSONAS: entre semana $ 590.000, fin de semana $ 760.000, fin de semana con puente $ 860.000 — Plan Familia una noche
+
+Incluye:
+Bienvenida
+Habitación tipo domo clasico
+Desayuno para 3 personas
+Cama Queen
+Sofá cama
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+
+*Desayuno en el restaurante*
+
+Check in (ingreso): Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+
+Valor para tres personas una noche (padres e hijos)
+Entre semana (lunes a viernes): $590.000
+Fin de semana (sábado o domingo): $760.000
+Sábado o domingo puente festivo $860.000
+
+Máximo 4 personas (dos adultos y dos niños)
+>3 años $50.000
+>5 años $70.000
+
+Precio sin IVA
+PLAN FAMILIAR 4 PERSONAS: entre semana $ 660.000, fin de semana $ 830.000, fin de semana con puente $ 930.000 — Plan Familia una noche
+
+Incluye:
+Bienvenida
+Habitación tipo domo clasico
+Desayuno para 3 personas
+Cama Queen
+Sofá cama
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+
+*Desayuno en el restaurante*
+
+Check in (ingreso): Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+
+Valor para tres personas una noche (padres e hijos)
+Entre semana (lunes a viernes): $590.000
+Fin de semana (sábado o domingo): $760.000
+Sábado o domingo puente festivo $860.000
+
+Máximo 4 personas (dos adultos y dos niños)
+>3 años $50.000
+>5 años $70.000
+
+Precio sin IVA
+PLAN AMIGAS 3 PERSONAS: entre semana $ 590.000, fin de semana $ 760.000, fin de semana con puente $ 930.000 — Plan amigas una noche
+ 
+Incluye:
+Bienvenida
+Habitación tipo domo clásico
+Desayuno para 3 personas
+Cama Queen
+Sofá cama
+Malla catamarán
+Jacuzzi
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+ 
+*Desayuno en el restaurante*
+ 
+Check in (ingreso): Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+ 
+Valor para tres personas una noche:
+
+Entre semana (lunes a viernes): $590.000
+Fin de semana (sábado o domingo): $790.000
+Sábado o domingo puente festivo $890.000
+ 
+ Precio sin IVA
+PASADIA BASICO ENTRE SEMANA (LUNES A VIERNES): entre semana $ 3.690.000, fin de semana $ 0, fin de semana con puente $ 0 — PASADIA BÁSICO:
+
+Habitación tipo domo clasico o Chalet 
+Malla catamarán
+Jacuzzi
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+Almuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)
+
+Check in (ingreso):Desde 9:00 am
+Check out (salida): 5:00 pm (del mismo dia)
+PASADIA INTERMEDIO DOS PERSONAS ENTRE SEMANA: entre semana $ 419.000, fin de semana $ 0, fin de semana con puente $ 0 — PASADÍA INTERMEDIO:
+
+Bienvenida
+Habitación tipo domo clasico o Chalet 
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+Almuerzo: Dos platos fuertes y dos jugos naturales (en el restaurante)
+
+Check in (ingreso):Desde 9:00 am
+Check out (salida): 7:00 pm (del mismo dia)
+PASADIA PREMIUM DOS PERSONAS ENTRE SEMANA: entre semana $ 639.000, fin de semana $ 0, fin de semana con puente $ 0 — PASADIA PREMIUM:
+
+Bienvenida
+Habitación tipo domo deluxe
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+Almuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)
+Spa Básico
+
+
+Check in (ingreso):Desde 9:00 am
+Check out (salida): 8:00 pm (del mismo dia)
+PASADIA BASICO DOMINGO NO FESTIVOS DOS PERSONAS: entre semana $ 0, fin de semana $ 390.000, fin de semana con puente $ 0 — PASADIA BÁSICO DOMINGO NO FESTIVO
+
+Habitación tipo domo o Chalet entrega 2:00 pm
+Malla catamarán
+Jacuzzi
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+Almuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)
+Circuito relajante de inmersion en quebrada natural y 30 minutos de turco al llegar 
+
+
+Check in (ingreso):Desde 10: 00 am
+Check out (salida): 6:00 pm (del mismo dia)
+PASADIA INTERMEDIO DOMINGO NO FESTIVOS DOS PERSONAS: entre semana $ 0, fin de semana $ 549.000, fin de semana con puente $ 0 — PASADIA INTERMEDIO DOMINGO :
+
+Habitación tipo domo o Chalet (se entrega 2:00 pm) 
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+Almuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)
+Spa básico en pareja (al llegar se toma) 
+
+
+Check in (ingreso):Desde 10:00 am
+Check out (salida): 7:00 pm (del mismo dia)
+PASADIA PREMIUM DOS PERSONAS DOMINGO NO FESTIVOS: entre semana $ 0, fin de semana $ 649.000, fin de semana con puente $ 0 — PASADIA PREMIUM DOMINGO NO FESTIVO:
+
+Habitación tipo domo clásico o chalet (se entrega 2:00 pm) 
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+Almuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)
+Spa intermedio en pareja (al llegar se toma) 
+       
+Check in (ingreso):Desde 10:00 am
+Check out (salida): 7:00 pm (del mismo dia)
+   (4121ms)
+
+   CLIENTE: cuanto vale el fin de semana?
+   BOT    : PLAN BASICO UNA NOCHE PARA DOS PERSONAS: entre semana $ 569.000, fin de semana $ 690.000, fin de semana con puente $ 790.000 — Plan Básico una noche dos personas 
+Incluye:
+Bienvenida
+Habitación tipo domo clásico o chalet 
+Desayuno
+Malla catamarán
+Jacuzzi
+Parlante bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+
+Si tomas el plan en el chalet tienes un servicio adicional de cinema privado
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN DESCANSO PREMIUM PARA DOS PERSONAS: entre semana $ 790.000, fin de semana $ 890.000, fin de semana con puente $ 990.000 — Plan descanso Premium una noche para dos personas:
+Incluye:
+Bienvenida
+Habitación tipo domo o Chalet 
+Desayuno
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+Decoración básica: (Aviso metalizado pequeño, 9 globos (3 moños), Mesa decorada. 
+Cena: dos platos fuertes y dos bebidas (bebidas de hasta $10.000) 
+Spa básico: Disfruta de nuestro Spa básico: un circuito en pareja que combina relajación y revitalización. Mientras uno de ustedes recibe un masaje individual de 30 minutos en la parte posterior de la espalda, cuello, brazos y piernas, el otro  disfruta de una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente. Luego cambian de camilla por otros 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia
+
+Si tomas el plan en el chalet tienes un servicio adicional de cinema privado
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN CLASICO VIP UNA NOCHE DOS PERSONAS: entre semana $ 1.279.000, fin de semana $ 1.379.000, fin de semana con puente $ 1.479.000 — Plan clásico VIP
+
+Incluye:
+Bienvenida 
+Glamping tipo domo clásico o chalet
+Cama Queen 
+Baño privado con ducha caliente
+Desayuno
+Malla catamarán
+Jacuzzi
+Parlante Bluetooth
+Parqueadero
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+Fogata y kit de malvaviscos 🍡
+Decoración premium: (Aviso metalizado grande, 20 globos,  Mesa decorada, canasta picnic decorativa, corazones en la cama)
+Elige una entrada (empanadas, salchipapa, papa a la francesa con queso cheddar)
+Cena dos platos fuertes y dos bebidas 
+Turco selvático 30 min
+Spa básico:  Disfruta de nuestro Spa básico: un circuito en pareja que combina relajación y revitalización. Mientras uno de ustedes recibe un masaje individual de 30 minutos en la parte posterior de la espalda, cuello, brazos y piernas, el otro  disfruta de una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente. Luego cambian de camilla por otros 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia
+Trío coctelería (eliges 3 cocteles y de cada uno te llegan 2).
+Video recuerdo (se envía editado 3-5 días posterior a la toma)
+Servicio a la habitación
+
+
+Si tomas el plan en el chalet tienes un servicio adicional de cinema privado (sin costo adicional por el cine)
+
+Check-in (ingreso): Desde las 3 pm, máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN CONFORT UNA NOCHE PARA DOS PERSONAS: entre semana $ 959.000, fin de semana $ 1.089.000, fin de semana con puente $ 0 — Plan Confort una noche La Julita Deluxe
+Incluye:
+Bienvenida
+Cama flotante
+puerta panorámica de cristal 
+baño de lujo.
+Desayuno
+Malla catamarán
+Jacuzzi
+Parlante Bluetooth
+Parqueadero
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+Fogata
+Servicio a la habitación 
+Turco 30 minutos 
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN LUJO UNA NOCHE PARA DOS PERSONAS: entre semana $ 999.000, fin de semana $ 1.029.000, fin de semana con puente $ 0 — Plan Lujo una noche La Julita Deluxe
+Incluye:
+Bienvenida
+Cama flotante
+Puerta panorámica de cristal
+Baño de lujo.
+Desayuno
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+Decoración básica: (Aviso metalizado pequeño, 9 globos (3 moños), Mesa decorada.
+Turco 20 minutos
+Servicio a la habitación
+Dos platos fuertes y dos jugos
+ 
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLANES BASICO DOS NOCHES DOS PERSONAS: entre semana $ 769.000, fin de semana $ 879.000, fin de semana con puente $ 1.139.000 — Plan Básico dos noches
+Incluye:
+
+Habitación tipo domo clásico o Chalet 
+2 Noches 3 días
+Malla catamarán
+Jacuzzi (un uso) 
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+
+Si tomas el plan en el chalet tienes un servicio adicional de cínema privado
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día 
+PLAN INTERMEDIO DOS NOCHES DOS PERSONAS: entre semana $ 1.019.000, fin de semana $ 1.139.000, fin de semana con puente $ 1.419.000 — Plan Intermedio dos noches
+ 
+Habitación tipo domo clásico o Chalet
+2 Noches 3 días
+Malla catamarán
+Desayuno
+Jacuzzi (uno por noche)
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+ 
+desayuno en el restaurante
+ 
+Si tomas el plan en el chalet tienes un servicio adicional de cinema privado
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN PREMIUM DOS NOCHES DOS PERSONAS: entre semana $ 1.139.000, fin de semana $ 1.259.000, fin de semana con puente $ 1.529.000 — Plan premium dos noches
+
+Bienvenida
+Habitación tipo domo clásico o Chalet 
+2 Noches 3 días
+Malla catamarán
+Desayuno
+Jacuzzi (dos dias)
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+Almuerzo (dos platos fuertes y dos jugos naturales) segundo dia
+Cena (dos platos fuertes y dos jugos naturales por noche)
+
+Si tomas el plan en el chalet tienes un servicio adicional de cínema privado
+Alimentacion en el restaurante
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN PARAISO UNA NOCHE DOS PERSONAS: entre semana $ 1.490.000, fin de semana $ 1.690.000, fin de semana con puente $ 0 — Plan Paraíso una noche La Julita Deluxe
+
+Incluye:
+
+Bienvenida.
+Cama flotante.
+Puerta panorámica de cristal.
+Baño de lujo.
+Desayuno.
+Malla catamarán.
+Jacuzzi.
+Parlante bluetooth.
+Parqueadero.
+Acceso a quebrada natural.
+Ventilador.
+Minibar (consumo adicional).
+Fogata y kit masmelos.
+Decoración premium: (Aviso metalizado grande, 20 globos,  Mesa decorada, canasta picnic decorativa, corazones en la cama, botella vino o champaña).
+Elige una entrada (empanadas, salchipapa, papa a la francesa con queso cheddar).
+Cena dos platos fuertes y dos bebidas.
+Spa premium: Sumérgete en nuestro Spa premium para parejas: Mientras uno disfruta de un masaje de 30 minutos en espalda, cuello, brazos y piernas, el otro recibe una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente, cambian de camilla por otros 30 minutos. Luego, ambos se sumergen en nuestra quebrada de agua fría, pasan al jacuzzi termorregulado y terminan la experiencia en nuestro turco selvático por 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia
+Trío coctelería (eliges 3 cocteles y de cada uno te llegan 2).
+Video recuerdo (se envía editado 3-5 días posterior a la toma)
+Servicio a la habitación.
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN UNA PERSONA UNA NOCHE DOMO CLASICO O CHALET: entre semana $ 339.000, fin de semana $ 679.000, fin de semana con puente $ 779.000 — Plan para una persona una noche
+Incluye:
+Bienvenida
+Habitación tipo domo clásico, Chalet o domo deluxe 
+Desayuno
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+
+Si tomas el plan en el chalet tienes un servicio adicional de cinema privado
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día 
+
+Valor para una persona una noche:
+Entre semana domo clásico o chalet (lunes a jueves): $339.000
+Domo  Deluxe (lunes a jueves) $569.000
+Fin de semana (viernes, sábado o domingo) domo clásico o chalet: $679.000
+Domo  deluxe: $1.090.000
+Fin de semana festivo (viernes, sábado o domingo) domo clásico chalet: $779.000
+Domo Deluxe $1.139.000
+PRECIO SIN IVA
+PLAN UNA PERSONA UNA NOCHE DOMO DELUXE: entre semana $ 5.690.000, fin de semana $ 1.090.000, fin de semana con puente $ 1.139.000 — Plan para una persona una noche
+Incluye:
+Bienvenida
+Habitación tipo domo clásico, Chalet o domo deluxe 
+Desayuno
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+
+Si tomas el plan en el chalet tienes un servicio adicional de cinema privado
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+PLAN FAMILIAR 3 PERSONAS: entre semana $ 590.000, fin de semana $ 760.000, fin de semana con puente $ 860.000 — Plan Familia una noche
+
+Incluye:
+Bienvenida
+Habitación tipo domo clasico
+Desayuno para 3 personas
+Cama Queen
+Sofá cama
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+
+*Desayuno en el restaurante*
+
+Check in (ingreso): Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+
+Valor para tres personas una noche (padres e hijos)
+Entre semana (lunes a viernes): $590.000
+Fin de semana (sábado o domingo): $760.000
+Sábado o domingo puente festivo $860.000
+
+Máximo 4 personas (dos adultos y dos niños)
+>3 años $50.000
+>5 años $70.000
+
+Precio sin IVA
+PLAN FAMILIAR 4 PERSONAS: entre semana $ 660.000, fin de semana $ 830.000, fin de semana con puente $ 930.000 — Plan Familia una noche
+
+Incluye:
+Bienvenida
+Habitación tipo domo clasico
+Desayuno para 3 personas
+Cama Queen
+Sofá cama
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+
+*Desayuno en el restaurante*
+
+Check in (ingreso): Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+
+Valor para tres personas una noche (padres e hijos)
+Entre semana (lunes a viernes): $590.000
+Fin de semana (sábado o domingo): $760.000
+Sábado o domingo puente festivo $860.000
+
+Máximo 4 personas (dos adultos y dos niños)
+>3 años $50.000
+>5 años $70.000
+
+Precio sin IVA
+PLAN AMIGAS 3 PERSONAS: entre semana $ 590.000, fin de semana $ 760.000, fin de semana con puente $ 930.000 — Plan amigas una noche
+ 
+Incluye:
+Bienvenida
+Habitación tipo domo clásico
+Desayuno para 3 personas
+Cama Queen
+Sofá cama
+Malla catamarán
+Jacuzzi
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+ 
+*Desayuno en el restaurante*
+ 
+Check in (ingreso): Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+ 
+Valor para tres personas una noche:
+
+Entre semana (lunes a viernes): $590.000
+Fin de semana (sábado o domingo): $790.000
+Sábado o domingo puente festivo $890.000
+ 
+ Precio sin IVA
+PASADIA BASICO ENTRE SEMANA (LUNES A VIERNES): entre semana $ 3.690.000, fin de semana $ 0, fin de semana con puente $ 0 — PASADIA BÁSICO:
+
+Habitación tipo domo clasico o Chalet 
+Malla catamarán
+Jacuzzi
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+Almuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)
+
+Check in (ingreso):Desde 9:00 am
+Check out (salida): 5:00 pm (del mismo dia)
+PASADIA INTERMEDIO DOS PERSONAS ENTRE SEMANA: entre semana $ 419.000, fin de semana $ 0, fin de semana con puente $ 0 — PASADÍA INTERMEDIO:
+
+Bienvenida
+Habitación tipo domo clasico o Chalet 
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+Almuerzo: Dos platos fuertes y dos jugos naturales (en el restaurante)
+
+Check in (ingreso):Desde 9:00 am
+Check out (salida): 7:00 pm (del mismo dia)
+PASADIA PREMIUM DOS PERSONAS ENTRE SEMANA: entre semana $ 639.000, fin de semana $ 0, fin de semana con puente $ 0 — PASADIA PREMIUM:
+
+Bienvenida
+Habitación tipo domo deluxe
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+Almuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)
+Spa Básico
+
+
+Check in (ingreso):Desde 9:00 am
+Check out (salida): 8:00 pm (del mismo dia)
+PASADIA BASICO DOMINGO NO FESTIVOS DOS PERSONAS: entre semana $ 0, fin de semana $ 390.000, fin de semana con puente $ 0 — PASADIA BÁSICO DOMINGO NO FESTIVO
+
+Habitación tipo domo o Chalet entrega 2:00 pm
+Malla catamarán
+Jacuzzi
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Ventilador
+Minibar (consumo adicional)
+Almuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)
+Circuito relajante de inmersion en quebrada natural y 30 minutos de turco al llegar 
+
+
+Check in (ingreso):Desde 10: 00 am
+Check out (salida): 6:00 pm (del mismo dia)
+PASADIA INTERMEDIO DOMINGO NO FESTIVOS DOS PERSONAS: entre semana $ 0, fin de semana $ 549.000, fin de semana con puente $ 0 — PASADIA INTERMEDIO DOMINGO :
+
+Habitación tipo domo o Chalet (se entrega 2:00 pm) 
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+Almuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)
+Spa básico en pareja (al llegar se toma) 
+
+
+Check in (ingreso):Desde 10:00 am
+Check out (salida): 7:00 pm (del mismo dia)
+PASADIA PREMIUM DOS PERSONAS DOMINGO NO FESTIVOS: entre semana $ 0, fin de semana $ 649.000, fin de semana con puente $ 0 — PASADIA PREMIUM DOMINGO NO FESTIVO:
+
+Habitación tipo domo clásico o chalet (se entrega 2:00 pm) 
+Malla catamarán
+Jacuzzi
+Fogata
+Parlante Bluetooth
+Parqueadero
+Juegos de mesa
+Baño privado con ducha caliente
+Acceso a quebrada natural
+Fogata
+Ventilador
+Minibar (consumo adicional)
+Almuerzo: dos platos fuertes y dos jugos naturales (en el restaurante)
+Spa intermedio en pareja (al llegar se toma) 
+       
+Check in (ingreso):Desde 10:00 am
+Check out (salida): 7:00 pm (del mismo dia)
+   (7440ms)
+
+   CLIENTE: tienen jacuzzi?
+   BOT    : ¡Sí! El jacuzzi está incluido en la mayoría de los planes, tanto en los de una noche como en los de dos noches y hasta en los pasadías. 😊
+
+¿Querés que te cuente más sobre algún plan en especial?
+   (7989ms)
+
+   CLIENTE: a que hora es el check in?
+   BOT    : Uy, esa info todavía no la tengo a la mano por acá 🙈
+
+Pero el equipo de La Julita te la confirma sin problema, ¿querés saber también qué fechas tienes en mente para ir? Así se la paso completa.
+   (6961ms)
+
+   CLIENTE: quiero reservar para el 20 de diciembre, somos 4
+   BOT    : ¡Perfecto! 🎄 Para el 20 de diciembre, 4 personas. Anotado.
+
+Un miembro del equipo se pone en contacto contigo para confirmar disponibilidad y cerrar los detalles. ¿Alguna preferencia especial para ese plan (domo o chalet), o cualquier cosa que quieras que les comente?
+   (4552ms)
+
+   CLIENTE: como pago?
+   BOT    : El pago se coordina con el equipo cuando te contacten para confirmar la reserva 😊 Te llega toda la info de cómo hacerlo.
+
+Quedamos pendientes con tu reserva del 20 de diciembre para 4. ¿Algo más en lo que te pueda ayudar?
+   (4809ms)
+
+   CLIENTE: quiero hablar con una persona
+   BOT    : Ya te comunico con el equipo de La Julita para que te ayude con esto — en un momento te escriben por acá.
+   (2288ms)
+
+  estado_conversacion guardado: {"canal":"diagnostico","external_id":"diag-1788895110978","last_agent":"humano","resumen":null,"updated_at":"2026-09-08T19:19:12.57+00:00"}
+  [OK]       last_agent persistido = humano
+  mensajes guardados en Supabase para esta conversación: 16
+
+========================================================================================
+== 8. CANAL WHATSAPP — firma del webhook, parseo y credenciales de YCloud
+========================================================================================
+  [OK]       firma válida aceptada correctamente
+  [OK]       firma falsa rechazada (mismatch)
+  [OK]       webhook viejo rechazado (stale)
+  parseYcloudWebhook devolvió 1 evento(s): [{"canal":"whatsapp","id":"+573212191805","texto":"prueba de diagnostico"}]
+  [OK]       el evento entrante se normalizó correctamente
+  [OK]       credenciales de YCloud válidas (HTTP 200, 818ms)
+  números en la cuenta: ["+573246166787"]
+  [OK]       YCLOUD_FROM_PHONE_NUMBER (+573246166787) corresponde a la cuenta
+
+  (no se mandó ningún mensaje real; usá --enviar-whatsapp=+57... si querés probar el envío)
+
+========================================================================================
+== 9. COLA REDIS / BULLMQ — estado y trabajos fallidos
+========================================================================================
+  [OK]       Redis responde PONG (1499ms)
+  conteos de la cola 'inbound': {"active":0,"completed":12,"delayed":0,"failed":0,"paused":0,"prioritized":0,"waiting":0,"waiting-children":0}
+  últimos 0 trabajo(s) fallido(s):
+
+  últimos 5 trabajo(s) completado(s): [{"id":"12","texto":"Hola quiero concer los planes"},{"id":"11","texto":"si quiero conocer que planes tienes"},{"id":"10","texto":"Donde estan ubicados ?"},{"id":"9","texto":"Hola"},{"id":"8","texto":"quiero ver los planes y precios"}]
+
+========================================================================================
+== RESUMEN
+========================================================================================
+  problemas encontrados: 2
+   1. ADMIN_PASSWORD vacío: el panel /admin queda sin contraseña real
+   2. SESSION_SECRET vacío: las cookies del panel se firman con el valor por defecto del código
+
+  avisos: 6
+   1. ORCHESTRATOR_MODEL sin definir (se usa el valor por defecto del código)
+   2. YCLOUD_DRY_RUN sin definir (se usa el valor por defecto del código)
+   3. YCLOUD_BASE_URL sin definir (se usa el valor por defecto del código)
+   4. PORT sin definir (se usa el valor por defecto del código)
+   5. ADMIN_PASSWORD sin definir (se usa el valor por defecto del código)
+   6. SESSION_SECRET sin definir (se usa el valor por defecto del código)
+
+Reporte guardado en: C:\Users\pataq\OneDrive\Documentos\LaJulita\ProjectChatBot\bot-lajulita\diagnostico-2026-09-08-19-17.txt

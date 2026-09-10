@@ -1,0 +1,12 @@
+-- ============================================================================================
+-- ESTE ARCHIVO YA NO HACE FALTA — se deja solo para no dejar un hueco en el historial.
+--
+-- Se generó el 2026-09-08 para crear las tablas de las PARTES 9 y 10 de schema.sql, porque
+-- ese archivo las marcaba como "SIN CORRER TODAVÍA". La verificación contra Supabase
+-- (scripts/diagnostico.ts) demostró que en realidad YA ESTABAN CREADAS y funcionando:
+-- `mensajes` con 24 filas, `estado_conversacion` con 1, la vista `conversaciones` OK y
+-- `faq`, `configuracion` y `fechas_bloqueadas` existentes (vacías). El comentario de
+-- schema.sql estaba desactualizado y ya quedó corregido.
+--
+-- Lo único que sí falta cargar son los horarios: ver sql/configuracion-horarios.sql
+-- ============================================================================================

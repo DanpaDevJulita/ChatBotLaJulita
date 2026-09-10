@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>La Julita — Panel de administración</title>
+  <link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>La Julita — Panel de administración</h1>
+    <button id="logout-btn">Cerrar sesión</button>
+  </header>
+
+  <nav class="tabs">
+    <button data-panel="planes" class="active">Planes</button>
+    <button data-panel="adicionales">Adicionales</button>
+    <button data-panel="horarios">Horarios y fechas</button>
+    <button data-panel="faq">Preguntas frecuentes</button>
+    <button data-panel="conversaciones">Conversaciones</button>
+  </nav>
+
+  <main>
+    <div id="banner-supabase" class="banner" hidden>
+      ⚠️ El servidor no tiene configurado Supabase (revisa SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
+      en el .env) — nada de lo que edites aquí se va a guardar hasta que eso esté listo.
+    </div>
+
+    <!-- PLANES -->
+    <section class="panel active" id="panel-planes">
+      <h2>Planes / paquetes</h2>
+      <p class="hint">Estos son los domos o paquetes que el bot ofrece cuando un cliente pregunta por precios. Solo los que estén "Activo" se le muestran al bot. <strong>El bot cotiza SIEMPRE con estos valores</strong>, así que lo que se cambie acá es lo que el cliente va a recibir por WhatsApp. Un precio vacío significa "ese plan no se vende ese día" (por ejemplo un pasadía de domingo no tiene tarifa de entre semana).</p>
+      <table class="editable">
+        <thead>
+          <tr><th style="width:20%">Nombre</th><th>Descripción</th><th style="width:11%">Entre semana</th><th style="width:11%">Fin de semana</th><th style="width:11%">Puente festivo</th><th style="width:7%">Activo</th><th style="width:13%"></th></tr>
+        </thead>
+        <tbody id="planes-body"></tbody>
+      </table>
+      <form class="add-row-form" id="planes-add-form">
+        <h3>Agregar plan nuevo</h3>
+        <div class="field-grid">
+          <div><label>Nombre</label><input type="text" name="nombre" required /></div>
+          <div><label>Entre semana (COP)</label><input type="number" name="precio_entre_semana" min="0" step="1000" /></div>
+          <div><label>Fin de semana (COP)</label><input type="number" name="precio_fin_de_semana" min="0" step="1000" /></div>
+          <div><label>Fin de semana con puente (COP)</label><input type="number" name="precio_fin_de_semana_puente" min="0" step="1000" /></div>
+        </div>
+        <div><label>Descripción</label><textarea name="descripcion"></textarea></div>
+        <button type="submit" class="btn primary" style="margin-top:8px">+ Agregar plan</button>
+      </form>
+    </section>
+
+    <!-- ADICIONALES -->
+    <section class="panel" id="panel-adicionales">
+      <h2>Adicionales</h2>
+      <p class="hint">Servicios extra (desayuno, jacuzzi, decoración, transporte...) que el bot puede ofrecer si el cliente pregunta.</p>
+      <table class="editable">
+        <thead>
+          <tr><th style="width:20%">Nombre</th><th>Descripción</th><th style="width:12%">Precio</th><th style="width:14%">Tipo</th><th style="width:7%">Activo</th><th style="width:13%"></th></tr>
+        </thead>
+        <tbody id="adicionales-body"></tbody>
+      </table>
+      <form class="add-row-form" id="adicionales-add-form">
+        <h3>Agregar adicional nuevo</h3>
+        <div class="field-grid">
+          <div><label>Nombre</label><input type="text" name="nombre" required /></div>
+          <div><label>Precio (COP)</label><input type="number" name="precio" min="0" step="1000" /></div>
+          <div><label>Tipo</label><select name="tipo_adicional_id" id="adicional-tipo-nuevo" required></select></div>
+        </div>
+        <div><label>Descripción</label><textarea name="descripcion"></textarea></div>
+        <button type="submit" class="btn primary" style="margin-top:8px">+ Agregar adicional</button>
+      </form>
+    </section>
+
+    <!-- HORARIOS Y FECHAS -->
+    <section class="panel" id="panel-horarios">
+      <h2>Horarios de check-in / check-out</h2>
+      <div class="field-grid" style="max-width:400px">
+        <div><label>Check-in (ej: 15:00)</label><input type="text" id="checkin-input" /></div>
+        <div><label>Check-out (ej: 12:00)</label><input type="text" id="checkout-input" /></div>
+      </div>
+      <button class="btn primary" id="guardar-horarios">Guardar horarios</button>
+
+      <h2 style="margin-top:32px">Fechas bloqueadas / no disponibles</h2>
+      <p class="hint">Estas fechas se muestran cuando el bot tenga la herramienta de disponibilidad conectada. Por ahora sirven como registro para el equipo.</p>
+      <table class="editable">
+        <thead><tr><th style="width:20%">Fecha</th><th>Motivo</th><th style="width:14%"></th></tr></thead>
+        <tbody id="fechas-body"></tbody>
+      </table>
+      <form class="add-row-form" id="fechas-add-form">
+        <h3>Bloquear una fecha</h3>
+        <div class="field-grid">
+          <div><label>Fecha</label><input type="date" name="fecha" required /></div>
+          <div><label>Motivo (opcional)</label><input type="text" name="motivo" /></div>
+        </div>
+        <button type="submit" class="btn primary" style="margin-top:8px">+ Bloquear fecha</button>
+      </form>
+    </section>
+
+    <!-- FAQ -->
+    <section class="panel" id="panel-faq">
+      <h2>Preguntas frecuentes</h2>
+      <p class="hint">El "tema" es el identificador interno (sin espacios ni tildes, ej: <code>ubicacion</code>) que el bot usa para reconocer la pregunta. La respuesta se le manda al cliente tal cual la escribas — el bot no la reformula.</p>
+      <table class="editable">
+        <thead><tr><th style="width:16%">Tema</th><th style="width:22%">Pregunta ejemplo</th><th>Respuesta</th><th style="width:12%"></th></tr></thead>
+        <tbody id="faq-body"></tbody>
+      </table>
+      <form class="add-row-form" id="faq-add-form">
+        <h3>Agregar pregunta nueva</h3>
+        <div class="field-grid">
+          <div><label>Tema (sin espacios/tildes)</label><input type="text" name="tema" pattern="[a-z0-9_]+" placeholder="ej: precios_temporada" required /></div>
+          <div><label>Pregunta ejemplo</label><input type="text" name="pregunta_ejemplo" /></div>
+        </div>
+        <div><label>Respuesta</label><textarea name="respuesta" required></textarea></div>
+        <button type="submit" class="btn primary" style="margin-top:8px">+ Agregar pregunta</button>
+      </form>
+    </section>
+
+    <!-- CONVERSACIONES -->
+    <section class="panel" id="panel-conversaciones">
+      <h2>Conversaciones del bot</h2>
+      <p class="hint">Últimos clientes que le han escrito al bot. Haz clic en uno para ver la conversación completa.</p>
+      <div class="conversaciones-layout">
+        <div class="conv-list" id="conv-list"></div>
+        <div class="chat-view" id="chat-view">
+          <div class="empty-state">Selecciona una conversación de la izquierda.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,655 @@
+REPORTE DE DIAGNÓSTICO — bot La Julita
+fecha: 2026-09-08T20:47:59.480Z
+archivo: C:\Users\pataq\OneDrive\Documentos\LaJulita\ProjectChatBot\bot-lajulita\diagnostico-2026-09-08-20-47.txt
+
+========================================================================================
+== 1. CONFIGURACIÓN (.env)
+========================================================================================
+  [OK]       OPENROUTER_API_KEY definida (largo 73)
+  [OK]       OPENROUTER_MODEL = deepseek/deepseek-v4-flash-0731
+  [OK]       SUPABASE_URL = https://wcjoqkvkdnueadkcbupr.supabase.co
+  [OK]       SUPABASE_SERVICE_ROLE_KEY definida (largo 41)
+  [OK]       REDIS_URL definida (largo 112)
+  [OK]       YCLOUD_API_KEY definida (largo 32)
+  [OK]       YCLOUD_WEBHOOK_SECRET definida (largo 38)
+  [OK]       YCLOUD_FROM_PHONE_NUMBER = +573246166787
+  [AVISO]    ORCHESTRATOR_MODEL sin definir (se usa el valor por defecto del código)
+  [OK]       YCLOUD_DRY_RUN = false
+  [OK]       YCLOUD_BASE_URL = https://api.ycloud.com
+  [OK]       PORT = 3000
+  [OK]       ADMIN_PASSWORD definida (largo 21)
+  [OK]       SESSION_SECRET definida (largo 64)
+
+  modelo de los agentes    : deepseek/deepseek-v4-flash-0731
+  modelo del orquestador   : deepseek/deepseek-v4-flash-0731
+  supabaseConfigured       : true
+  YCLOUD_DRY_RUN activo    : false
+
+========================================================================================
+== 2. SUPABASE — existencia de tablas y conteo de filas
+========================================================================================
+  [OK]       clase_domo: 3 filas (1641ms)
+  [OK]       domos: 8 filas (350ms)
+  [OK]       planes: 20 filas (355ms)
+  [OK]       tipo_adicional: 6 filas (462ms)
+  [OK]       adicionales: 15 filas (358ms)
+  [OK]       tipo_documento: 0 filas (371ms)
+  [OK]       clientes: 0 filas (343ms)
+  [OK]       estado: 0 filas (491ms)
+  [OK]       reservas: 0 filas (358ms)
+  [OK]       acompanantes: 0 filas (377ms)
+  [OK]       adicionales_reserva: 0 filas (315ms)
+  [OK]       mensajes: 60 filas (355ms)
+  [OK]       estado_conversacion: 2 filas (395ms)
+  [OK]       faq: 0 filas (353ms)
+  [OK]       configuracion: null filas (414ms)
+  [OK]       fechas_bloqueadas: null filas (284ms)
+  [OK]       conversaciones: 2 filas (390ms)
+
+========================================================================================
+== 3. SUPABASE — datos reales que usa el bot
+========================================================================================
+  filas totales en planes: 20
+   - id=2 activo=true nombre="PLAN BASICO UNA NOCHE PARA DOS PERSONAS" cap=undefined semana=569000 finde=690000 puente=790000
+   - id=3 activo=true nombre="PLAN DESCANSO PREMIUM PARA DOS PERSONAS" cap=undefined semana=790000 finde=890000 puente=990000
+   - id=21 activo=true nombre="PLAN CLASICO VIP UNA NOCHE DOS PERSONAS" cap=undefined semana=1279000 finde=1379000 puente=1479000
+   - id=22 activo=true nombre="PLAN CONFORT UNA NOCHE PARA DOS PERSONAS" cap=undefined semana=959000 finde=1089000 puente=0
+   - id=23 activo=true nombre="PLAN LUJO UNA NOCHE PARA DOS PERSONAS" cap=undefined semana=999000 finde=1029000 puente=0
+   - id=24 activo=true nombre="PLANES BASICO DOS NOCHES DOS PERSONAS" cap=undefined semana=769000 finde=879000 puente=1139000
+   - id=25 activo=true nombre="PLAN INTERMEDIO DOS NOCHES DOS PERSONAS" cap=undefined semana=1019000 finde=1139000 puente=1419000
+   - id=26 activo=true nombre="PLAN PREMIUM DOS NOCHES DOS PERSONAS" cap=undefined semana=1139000 finde=1259000 puente=1529000
+   - id=27 activo=true nombre="PLAN PARAISO UNA NOCHE DOS PERSONAS" cap=undefined semana=1490000 finde=1690000 puente=0
+   - id=28 activo=true nombre="PLAN UNA PERSONA UNA NOCHE DOMO CLASICO O CHALET" cap=undefined semana=339000 finde=679000 puente=779000
+   - id=29 activo=true nombre="PLAN UNA PERSONA UNA NOCHE DOMO DELUXE" cap=undefined semana=5690000 finde=1090000 puente=1139000
+   - id=30 activo=true nombre="PLAN FAMILIAR 3 PERSONAS" cap=undefined semana=590000 finde=760000 puente=860000
+   - id=31 activo=true nombre="PLAN FAMILIAR 4 PERSONAS" cap=undefined semana=660000 finde=830000 puente=930000
+   - id=32 activo=true nombre="PLAN AMIGAS 3 PERSONAS" cap=undefined semana=590000 finde=760000 puente=930000
+   - id=33 activo=true nombre="PASADIA BASICO ENTRE SEMANA (LUNES A VIERNES)" cap=undefined semana=3690000 finde=0 puente=0
+   - id=34 activo=true nombre="PASADIA INTERMEDIO DOS PERSONAS ENTRE SEMANA" cap=undefined semana=419000 finde=0 puente=0
+   - id=35 activo=true nombre="PASADIA PREMIUM DOS PERSONAS ENTRE SEMANA" cap=undefined semana=639000 finde=0 puente=0
+   - id=36 activo=true nombre="PASADIA BASICO DOMINGO NO FESTIVOS DOS PERSONAS" cap=undefined semana=0 finde=390000 puente=0
+   - id=37 activo=true nombre="PASADIA INTERMEDIO DOMINGO NO FESTIVOS DOS PERSONAS" cap=undefined semana=0 finde=549000 puente=0
+   - id=38 activo=true nombre="PASADIA PREMIUM DOS PERSONAS DOMINGO NO FESTIVOS" cap=undefined semana=0 finde=649000 puente=0
+  [OK]       20 plan(es) con activo=true
+  planesRepo.list(true) devolvió 20 fila(s)
+
+  clase_domo: [{"id":1,"nombre":"Clasico"},{"id":2,"nombre":"Delux"},{"id":3,"nombre":"Chalet"}]
+  domos: [{"id":1,"clase":1,"opcion":"Familias, 2 adultos 2 niños maximo o parejas.\n ","capacidad_max":4},{"id":2,"clase":1,"opcion":"Pareja","capacidad_max":2},{"id":3,"clase":1,"opcion":"Familias, 2 adultos 2 niños maximo o Parejas.","capacidad_max":4},{"id":4,"clase":1,"opcion":"Pareja","capacidad_max":2},{"id":5,"clase":2,"opcion":"Pareja","capacidad_max":2},{"id":6,"clase":2,"opcion":"Pareja","capacidad_max":2},{"id":7,"clase":2,"opcion":"Pareja","capacidad_max":2},{"id":8,"clase":3,"opcion":"Pareja","capacidad_max":2}]
+  planes con domos_id cargado: 0 de 0
+  [AVISO]    ningún plan tiene `domos_id` cargado: el bot deduce el tipo de alojamiento (chalet/clásico/deluxe) del nombre y la descripción. Funciona, pero cargar domos_id lo haría exacto.
+  [AVISO]    ningún plan tiene `capacidad` cargada: se deduce del nombre ('PARA DOS PERSONAS'). Conviene cargarla.
+  adicionalesRepo.list(true) -> [{"id":1,"nombre":"SPA","descripcion":"SPA PREMIUM DOS PERSONAS","precio":330000,"tipo_adicional_id":1,"estado":true},{"id":2,"nombre":"SPA","descripcion":"SPA INTERMEDIO DOS PERSONAS ","precio":310000,"tipo_adicional_id":1,"estado":true},{"id":3,"nombre":"SPA","descripcion":"SPA BASICO DOS PERSONAS
+  getConfiguracion() -> {}
+  listFaq() -> []
+
+========================================================================================
+== 4. HERRAMIENTAS — qué ve el modelo y qué devuelve cada una
+========================================================================================
+  herramientas REGISTRADAS (las que el modelo puede llamar): consultar_planes, consultar_adicionales
+  esquemas enviados al modelo: ["consultar_planes","consultar_adicionales"]
+  herramientas mencionadas en prompts/system.md: consultar_planes, consultar_adicionales
+
+  --- consultar_planes con argumentos (el flujo nuevo: de a 3) ---
+
+   > sin argumentos — 465 caracteres, planes mostrados: -
+     Elige tu experiencia ideal:
+     
+     🏕️🌙 Planes por noche
+     Incluye noche, jacuzzi y desayuno. La decoración se agrega por valor adicional 🎈
+     Desde $ 339.000
+     
+     💛 Planes intermedios
+     Noche, desayuno, jacuzzi, cena y decoración especial 💐
+     Desde $ 790.000
+     
+     🌟🥂 Planes todo incluido
+     Noche, cena romántica, jacuzzi, desayuno, fogata, spa, coctelería, servicio a la habitación y más 💕🔥
+     Desde $ 1.279.000
+     
+     Los valores son sin IVA. ¿Cuál de estas experiencias quieres vivir? 💑✨
+
+   > personas=2 — 481 caracteres, planes mostrados: -
+     Elige tu experiencia ideal para 2 personas:
+     
+     🏕️🌙 Planes por noche
+     Incluye noche, jacuzzi y desayuno. La decoración se agrega por valor adicional 🎈
+     Desde $ 339.000
+     
+     💛 Planes intermedios
+     Noche, desayuno, jacuzzi, cena y decoración especial 💐
+     Desde $ 790.000
+     
+     🌟🥂 Planes todo incluido
+     Noche, cena romántica, jacuzzi, desayuno, fogata, spa, coctelería, servicio a la habitación y más 💕🔥
+     Desde $ 1.279.000
+     
+     Los valores son sin IVA. ¿Cuál de estas experiencias quieres vivir? 💑✨
+
+   > personas=2, fecha=sábado (menú de 3 experiencias) — 502 caracteres, planes mostrados: -
+     Elige tu experiencia ideal para 2 personas de viernes a domingo:
+     
+     🏕️🌙 Planes por noche
+     Incluye noche, jacuzzi y desayuno. La decoración se agrega por valor adicional 🎈
+     Desde $ 679.000
+     
+     💛 Planes intermedios
+     Noche, desayuno, jacuzzi, cena y decoración especial 💐
+     Desde $ 890.000
+     
+     🌟🥂 Planes todo incluido
+     Noche, cena romántica, jacuzzi, desayuno, fogata, spa, coctelería, servicio a la habitación y más 💕🔥
+     Desde $ 1.379.000
+     
+     Los valores son sin IVA. ¿Cuál de estas experiencias quieres vivir? 💑✨
+
+   > nivel=por_noche — 712 caracteres, planes mostrados: 3
+     🏕️🌙 Planes por noche para 2 personas:
+     • PLAN UNA PERSONA UNA NOCHE DOMO CLASICO O CHALET (hasta 4 personas): $ 679.000 de viernes a domingo
+        Incluye cine privado en el chalet, jacuzzi, fogata.
+     • ⭐ Mi recomendación: PLAN AMIGAS 3 PERSONAS (hasta 4 personas): $ 760.000 de viernes a domingo
+        Incluye jacuzzi, fogata, quebrada natural.
+     • PLAN UNA PERSONA UNA NOCHE DOMO DELUXE (hasta 4 personas): $ 1.090.000 de viernes a domingo
+        Incluye cine privado en el chalet, jacuzzi, fogata.
+     Ojo: si ese fin de semana cae puente festivo, la tarifa cambia — decime la fecha exacta y te confirmo.
+     
+     Los valores son sin IVA. ¿Cuál te gustaría tomar? Con ese dato le pido al equipo que te confirme el cupo para esa fecha.
+
+   > nivel=intermedio — 755 caracteres, planes mostrados: 3
+     💛 Planes intermedios para 2 personas:
+     • PLAN DESCANSO PREMIUM PARA DOS PERSONAS (hasta 4 personas): $ 890.000 de viernes a domingo
+        Incluye spa en pareja, cine privado en el chalet, decoración.
+     • ⭐ Mi recomendación: PLAN CONFORT UNA NOCHE PARA DOS PERSONAS (hasta 4 personas): $ 1.089.000 de viernes a domingo
+        Incluye turco selvático, cama flotante, puerta panorámica de cristal.
+     • PLAN PREMIUM DOS NOCHES DOS PERSONAS (hasta 4 personas): $ 1.259.000 de viernes a domingo
+        Incluye cine privado en el chalet, cena, jacuzzi.
+     Ojo: si ese fin de semana cae puente festivo, la tarifa cambia — decime la fecha exacta y te confirmo.
+     
+     Los valores son sin IVA. ¿Cuál te gustaría tomar? Con ese dato le pido al equipo que te confirme el cupo para esa fecha.
+
+   > nivel=todo_incluido — 589 caracteres, planes mostrados: 2
+     🌟🥂 Planes todo incluido para 2 personas:
+     • PLAN CLASICO VIP UNA NOCHE DOS PERSONAS (hasta 4 personas): $ 1.379.000 de viernes a domingo
+        Incluye spa en pareja, turco selvático, cine privado en el chalet.
+     • PLAN PARAISO UNA NOCHE DOS PERSONAS (hasta 4 personas): $ 1.690.000 de viernes a domingo
+        Incluye spa premium en pareja, turco selvático, cama flotante.
+     Ojo: si ese fin de semana cae puente festivo, la tarifa cambia — decime la fecha exacta y te confirmo.
+     
+     Los valores son sin IVA. ¿Cuál te gustaría tomar? Con ese dato le pido al equipo que te confirme el cupo para esa fecha.
+
+   > personas=2, ocasion=aniversario, fecha=sábado — 502 caracteres, planes mostrados: -
+     Elige tu experiencia ideal para 2 personas de viernes a domingo:
+     
+     🏕️🌙 Planes por noche
+     Incluye noche, jacuzzi y desayuno. La decoración se agrega por valor adicional 🎈
+     Desde $ 679.000
+     
+     💛 Planes intermedios
+     Noche, desayuno, jacuzzi, cena y decoración especial 💐
+     Desde $ 890.000
+     
+     🌟🥂 Planes todo incluido
+     Noche, cena romántica, jacuzzi, desayuno, fogata, spa, coctelería, servicio a la habitación y más 💕🔥
+     Desde $ 1.379.000
+     
+     Los valores son sin IVA. ¿Cuál de estas experiencias quieres vivir? 💑✨
+
+   > personas=2, fecha=martes (entre semana) — 499 caracteres, planes mostrados: -
+     Elige tu experiencia ideal para 2 personas de lunes a jueves:
+     
+     🏕️🌙 Planes por noche
+     Incluye noche, jacuzzi y desayuno. La decoración se agrega por valor adicional 🎈
+     Desde $ 339.000
+     
+     💛 Planes intermedios
+     Noche, desayuno, jacuzzi, cena y decoración especial 💐
+     Desde $ 790.000
+     
+     🌟🥂 Planes todo incluido
+     Noche, cena romántica, jacuzzi, desayuno, fogata, spa, coctelería, servicio a la habitación y más 💕🔥
+     Desde $ 1.279.000
+     
+     Los valores son sin IVA. ¿Cuál de estas experiencias quieres vivir? 💑✨
+
+   > personas=2, fecha=sábado + festivo — 516 caracteres, planes mostrados: -
+     Elige tu experiencia ideal para 2 personas en fin de semana de puente festivo:
+     
+     🏕️🌙 Planes por noche
+     Incluye noche, jacuzzi y desayuno. La decoración se agrega por valor adicional 🎈
+     Desde $ 779.000
+     
+     💛 Planes intermedios
+     Noche, desayuno, jacuzzi, cena y decoración especial 💐
+     Desde $ 990.000
+     
+     🌟🥂 Planes todo incluido
+     Noche, cena romántica, jacuzzi, desayuno, fogata, spa, coctelería, servicio a la habitación y más 💕🔥
+     Desde $ 1.479.000
+     
+     Los valores son sin IVA. ¿Cuál de estas experiencias quieres vivir? 💑✨
+
+   > personas=4, ocasion=familia — 481 caracteres, planes mostrados: -
+     Elige tu experiencia ideal para 4 personas:
+     
+     🏕️🌙 Planes por noche
+     Incluye noche, jacuzzi y desayuno. La decoración se agrega por valor adicional 🎈
+     Desde $ 339.000
+     
+     💛 Planes intermedios
+     Noche, desayuno, jacuzzi, cena y decoración especial 💐
+     Desde $ 790.000
+     
+     🌟🥂 Planes todo incluido
+     Noche, cena romántica, jacuzzi, desayuno, fogata, spa, coctelería, servicio a la habitación y más 💕🔥
+     Desde $ 1.279.000
+     
+     Los valores son sin IVA. ¿Cuál de estas experiencias quieres vivir? 💑✨
+
+   > personas=3, ocasion=amigas — 481 caracteres, planes mostrados: -
+     Elige tu experiencia ideal para 3 personas:
+     
+     🏕️🌙 Planes por noche
+     Incluye noche, jacuzzi y desayuno. La decoración se agrega por valor adicional 🎈
+     Desde $ 339.000
+     
+     💛 Planes intermedios
+     Noche, desayuno, jacuzzi, cena y decoración especial 💐
+     Desde $ 790.000
+     
+     🌟🥂 Planes todo incluido
+     Noche, cena romántica, jacuzzi, desayuno, fogata, spa, coctelería, servicio a la habitación y más 💕🔥
+     Desde $ 1.279.000
+     
+     Los valores son sin IVA. ¿Cuál de estas experiencias quieres vivir? 💑✨
+
+   > personas=2, pagina=2 (ver otras) — 489 caracteres, planes mostrados: 3
+     • PLAN CONFORT UNA NOCHE PARA DOS PERSONAS: entre semana $ 959.000, fin de semana $ 1.089.000
+        Incluye turco selvático, cama flotante.
+     • PLAN LUJO UNA NOCHE PARA DOS PERSONAS: entre semana $ 999.000, fin de semana $ 1.029.000
+        Incluye turco selvático, cama flotante.
+     • PLANES BASICO DOS NOCHES DOS PERSONAS: entre semana $ 769.000, fin de semana $ 879.000, fin de semana con puente $ 1.139.000
+        Incluye cine privado en el chalet, jacuzzi.
+     
+     ¿Alguno de estos te late, o te muestro más?
+
+   > personas=2, pagina=5 (pasado el final) — 351 caracteres, planes mostrados: 2
+     • PLAN FAMILIAR 4 PERSONAS: entre semana $ 660.000, fin de semana $ 830.000, fin de semana con puente $ 930.000
+        Incluye jacuzzi, fogata.
+     • PLAN AMIGAS 3 PERSONAS: entre semana $ 590.000, fin de semana $ 760.000, fin de semana con puente $ 930.000
+        Incluye jacuzzi, fogata.
+     
+     Esos son todos los que tengo para eso. ¿Cuál te gustaría que te detalle?
+
+   > personas=2, tipo=pasadia — 335 caracteres, planes mostrados: -
+     Elige tu experiencia ideal para 2 personas:
+     
+     🏕️🌙 Planes por noche
+     Incluye noche, jacuzzi y desayuno. La decoración se agrega por valor adicional 🎈
+     Desde $ 3.690.000
+     
+     💛 Planes intermedios
+     Noche, desayuno, jacuzzi, cena y decoración especial 💐
+     Desde $ 390.000
+     
+     Los valores son sin IVA. ¿Cuál de estas experiencias quieres vivir? 💑✨
+
+   > personas=2, tipo=dos_noches — 505 caracteres, planes mostrados: 3
+     • PLANES BASICO DOS NOCHES DOS PERSONAS (hasta 4 personas): $ 769.000
+        Incluye cine privado en el chalet, jacuzzi, fogata.
+     • ⭐ Mi recomendación: PLAN INTERMEDIO DOS NOCHES DOS PERSONAS (hasta 4 personas): $ 1.019.000
+        Incluye cine privado en el chalet, jacuzzi, fogata.
+     • PLAN PREMIUM DOS NOCHES DOS PERSONAS (hasta 4 personas): $ 1.139.000
+        Incluye cine privado en el chalet, cena, jacuzzi.
+     
+     Los valores son sin IVA. ¿Para qué fecha lo tienen pensado? Con eso te confirmo el valor exacto y el cupo.
+
+   > plan='paraiso' (detalle) — 1413 caracteres, planes mostrados: -
+     PLAN PARAISO UNA NOCHE DOS PERSONAS (hasta 4 personas)
+     entre semana $ 1.490.000, fin de semana $ 1.690.000
+     
+     Plan Paraíso una noche La Julita Deluxe
+     
+     Incluye:
+     
+     Bienvenida.
+     Cama flotante.
+     Puerta panorámica de cristal.
+     Baño de lujo.
+     Desayuno.
+     Malla catamarán.
+     Jacuzzi.
+     Parlante bluetooth.
+     Parqueadero.
+     Acceso a quebrada natural.
+     Ventilador.
+     Minibar (consumo adicional).
+     Fogata y kit masmelos.
+     Decoración premium: (Aviso metalizado grande, 20 globos,  Mesa decorada, canasta picnic decorativa, corazones en la cama, botella vino o champaña).
+     Elige una entrada (empanadas, salchipapa, papa a la francesa con queso cheddar).
+     Cena dos platos fuertes y dos bebidas.
+     Spa premium: Sumérgete en nuestro Spa premium para parejas: Mientras uno disfruta de un masaje de 30 minutos en espalda, cuello, brazos y piernas, el otro recibe una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente, cambian de camilla por otros 30 minutos. Luego, ambos se sumergen en nuestra quebrada de agua fría, pasan al jacuzzi termorregulado y terminan la experiencia en nuestro turco selvático por 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia
+     Trío coctelería (eliges 3 cocteles y de cada uno te llegan 2).
+     Video recuerdo (se envía editado 3-5 días posterior a la toma)
+     Servicio a la habitación.
+     
+     Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+     Check out (salida): Medio día
+
+   > plan='paraiso' + fecha (un solo precio) — 1394 caracteres, planes mostrados: -
+     PLAN PARAISO UNA NOCHE DOS PERSONAS (hasta 4 personas)
+     $ 1.690.000 de viernes a domingo
+     
+     Plan Paraíso una noche La Julita Deluxe
+     
+     Incluye:
+     
+     Bienvenida.
+     Cama flotante.
+     Puerta panorámica de cristal.
+     Baño de lujo.
+     Desayuno.
+     Malla catamarán.
+     Jacuzzi.
+     Parlante bluetooth.
+     Parqueadero.
+     Acceso a quebrada natural.
+     Ventilador.
+     Minibar (consumo adicional).
+     Fogata y kit masmelos.
+     Decoración premium: (Aviso metalizado grande, 20 globos,  Mesa decorada, canasta picnic decorativa, corazones en la cama, botella vino o champaña).
+     Elige una entrada (empanadas, salchipapa, papa a la francesa con queso cheddar).
+     Cena dos platos fuertes y dos bebidas.
+     Spa premium: Sumérgete en nuestro Spa premium para parejas: Mientras uno disfruta de un masaje de 30 minutos en espalda, cuello, brazos y piernas, el otro recibe una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente, cambian de camilla por otros 30 minutos. Luego, ambos se sumergen en nuestra quebrada de agua fría, pasan al jacuzzi termorregulado y terminan la experiencia en nuestro turco selvático por 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia
+     Trío coctelería (eliges 3 cocteles y de cada uno te llegan 2).
+     Video recuerdo (se envía editado 3-5 días posterior a la toma)
+     Servicio a la habitación.
+     
+     Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+     Check out (salida): Medio día
+
+   > plan='familiar' (ambiguo a propósito) — 304 caracteres, planes mostrados: -
+     Tengo varios que coinciden con "familiar":
+     • PLAN FAMILIAR 3 PERSONAS: entre semana $ 590.000, fin de semana $ 760.000, fin de semana con puente $ 860.000
+     • PLAN FAMILIAR 4 PERSONAS: entre semana $ 660.000, fin de semana $ 830.000, fin de semana con puente $ 930.000
+     
+     ¿Cuál de esos querés que te detalle?
+
+   > plan='no existe este plan' — 465 caracteres, planes mostrados: -
+     Elige tu experiencia ideal:
+     
+     🏕️🌙 Planes por noche
+     Incluye noche, jacuzzi y desayuno. La decoración se agrega por valor adicional 🎈
+     Desde $ 339.000
+     
+     💛 Planes intermedios
+     Noche, desayuno, jacuzzi, cena y decoración especial 💐
+     Desde $ 790.000
+     
+     🌟🥂 Planes todo incluido
+     Noche, cena romántica, jacuzzi, desayuno, fogata, spa, coctelería, servicio a la habitación y más 💕🔥
+     Desde $ 1.279.000
+     
+     Los valores son sin IVA. ¿Cuál de estas experiencias quieres vivir? 💑✨
+
+  --- consultar_planes (ACTIVA) (264ms) ---
+  largo de reply_to_user: 465 caracteres (máximo de un mensaje de WhatsApp: 4096)
+  reply_to_user: "Elige tu experiencia ideal:\n\n🏕️🌙 Planes por noche\nIncluye noche, jacuzzi y desayuno. La decoración se agrega por valor adicional 🎈\nDesde $ 339.000\n\n💛 Planes intermedios\nNoche, desayuno, jacuzzi, cena y decoración especial 💐\nDesde $ 790.000\n\n🌟🥂 Planes todo incluido\nNoche, cena romántica, jacuzzi, desayuno, fogata, spa, coctelería, servicio a la habitación y más 💕🔥\nDesde $ 1.279.000\n\nLos valores son sin IVA. ¿Cuál de estas experiencias quieres vivir? 💑✨"
+
+  --- consultar_adicionales (ACTIVA) (372ms) ---
+  largo de reply_to_user: 662 caracteres (máximo de un mensaje de WhatsApp: 4096)
+  reply_to_user: "• SPA PREMIUM DOS PERSONAS: $ 330.000\n• SPA INTERMEDIO DOS PERSONAS: $ 310.000\n• SPA BASICO DOS PERSONAS: $ 210.000\n• SPA BASICO UNA PERSONA: $ 99.000\n• SPA INTERMEDO UNA PERSONA: $ 149.000\n• SPA PREMIUM UNA PERSONA: $ 179.000\n• DECORACION BASICA: $ 50.000\n• DECORACION INTERMEDIA: $ 80.000\n• DECORACION PREMIUM: $ 140.000\n• CINE EN LAS MONTAÑAS (CINE EXTERNO): $ 60.000\n• VIDEO RECUERDO 3 TOMAS CON CELULAR: $ 60.000\n• VIDEO RECUERDO 3 TOMAS CON DRONE: $ 100.000\n• CUATRIMOTO DOS HORAS DOS PERSONAS: $ 190.000\n• TURCO 30 MINUTOS DOS PERSONAS: $ 70.000\n• TURCO 60 MINUTOS DOS PERSONAS: $ 100.000\n\nLos valores son sin IVA. ¿Querés que le sume alguno a tu reserva?"
+
+  --- consultar_horarios (desactivada) (234ms) ---
+  largo de reply_to_user: 82 caracteres (máximo de un mensaje de WhatsApp: 4096)
+  reply_to_user: "Todavía no tengo esos horarios cargados — dale la pregunta al equipo de La Julita."
+
+  --- preguntas_frecuentes (desactivada) (1ms) ---
+  largo de reply_to_user: 75 caracteres (máximo de un mensaje de WhatsApp: 4096)
+  reply_to_user: "Todavía no tengo esa información — dale la pregunta al equipo de La Julita."
+
+========================================================================================
+== 5. MODELO (OpenRouter) — ¿existe el modelo?, ¿responde?, ¿llama la herramienta?
+========================================================================================
+  catálogo de OpenRouter: 431 modelos (211ms)
+  [OK]       el modelo configurado existe: deepseek/deepseek-v4-flash-0731
+  [OK]       llamada simple al modelo OK (4462ms) — respuesta: "¡Hola! ✨ Soy Estefany de La Julita Glamping 🌿🏕️ Me encantaría ayudarte a elegir el plan perfecto.\n\n📌 Al continuar aceptás nuestra política de datos 👉 https://www.lajulitaglamping.com.co\n\nContame 👇 ¿vienen en pareja, en familia o con amigas? 📆 ¿y para qué fecha?"
+
+  Prueba de tool-calling: 6 frases x 2 repeticiones
+   [texto libre] "quiero ver los planes y precios" -> "✨ ¡Hola! Soy Estefany de La Julita Glamping 🌿🏕️ Con gusto te muestro los planes.\n📌 Al continuar aceptás nuestra política de datos 👉 https://www.lajulitaglam" (3562ms)
+   [texto libre] "quiero ver los planes y precios" -> "✨ ¡Hola! Soy Estefany de La Julita Glamping 🌿🏕️ Me encantaría ayudarte a elegir el plan perfecto.\n\n📌 Al continuar aceptás nuestra política de datos 👉 https:" (4366ms)
+   [texto libre] "Hola quiero conocer los planes" -> "✨ ¡Hola! Soy Estefany de La Julita Glamping 🌿🏕️ Me encantaría ayudarte a elegir el plan perfecto.\n\n📌 Al continuar aceptás nuestra política de datos 👉 https:" (2307ms)
+   [texto libre] "Hola quiero conocer los planes" -> "✨ ¡Hola! Soy Estefany de La Julita Glamping 🌿🏕️ Me encantaría ayudarte a elegir el plan perfecto.\n\n📌 Al continuar aceptás nuestra política de datos 👉 https:" (1810ms)
+   [texto libre] "si quiero conocer que planes tienes" -> "¡Hola! 🌿 Soy Estefany de La Julita Glamping 🏕️ Me encantaría ayudarte a elegir el plan perfecto.\n\nContame 👇 ¿vienen en pareja, en familia o con amigas? 📆 ¿y" (3164ms)
+   [texto libre] "si quiero conocer que planes tienes" -> "¡Hola! 🌿✨ Soy Estefany de La Julita Glamping, me encantará ayudarte a encontrar el plan perfecto.\n\nPara mostrarte las opciones, contame 👇 ¿vienen en pareja, e" (4220ms)
+   [texto libre] "cuanto vale una noche?" -> "¡Hola! 👋 Soy Estefany de La Julita Glamping 🌿🏕️\n\nCon gusto te cuento el precio, pero el valor varía según el plan y la fecha. ¿Vienen en pareja, en familia o" (2795ms)
+   [texto libre] "cuanto vale una noche?" -> "¡Hola! 😊 Soy Estefany de La Julita Glamping 🌿🏕️ Con gusto te ayudo con los precios.\n\nPara cotizarte bien, contame 👇 ¿vienen en pareja, en familia o con amig" (3110ms)
+   [texto libre] "que domos tienen y a que precio" -> "¡Hola! 🌿 Soy Estefany de La Julita Glamping, con mucho gusto te cuento todo sobre nuestros domos. ✨\n\n📌 Al continuar aceptás nuestra política de datos 👉 https" (4037ms)
+   [texto libre] "que domos tienen y a que precio" -> "✨ ¡Hola! Soy Estefany de La Julita Glamping 🌿🏕️ Me encantaría ayudarte a elegir el plan perfecto.\n\n📌 Al continuar aceptás nuestra política de datos 👉 https:" (2849ms)
+   [texto libre] "cuales son los precios de fin de semana" -> "¡Hola! Soy Estefany de La Julita Glamping 🌿🏕️ Me encantaría ayudarte con eso.\n\n📌 Al continuar aceptás nuestra política de datos 👉 https://www.lajulitaglampi" (6933ms)
+   [texto libre] "cuales son los precios de fin de semana" -> "¡Hola! Soy Estefany de La Julita Glamping 🌿🏕️ Con mucho gusto te cuento los precios del fin de semana.\n\nPara darte el valor exacto de ese día, contame 👇 ¿vie" (4254ms)
+
+  RESULTADO tool-calling: llamó la herramienta en 0/12 intentos
+  [PROBLEMA] el modelo NUNCA llamó consultar_planes: siempre responde de su propia cabeza (precios inventados o evasivas)
+
+========================================================================================
+== 6. ORQUESTADOR — enrutamiento y pegajosidad
+========================================================================================
+   [ok ] last_agent=null | "Hola"
+          -> agente=informacion (esperado: informacion) motivo="Primer mensaje, solo saludo, intención no clara." (3148ms)
+   [ok ] last_agent=null | "quiero conocer los planes y precios"
+          -> agente=informacion (esperado: informacion|reservas) motivo="Pregunta general por planes y precios, aún sin intención explícita de reservar ni fechas" (1194ms)
+   [ok ] last_agent=null | "donde estan ubicados?"
+          -> agente=informacion (esperado: informacion) motivo="Pregunta sobre la ubicación del glamping." (1117ms)
+   [ok ] last_agent=null | "tienen disponible el 20 de diciembre para 4 personas?"
+          -> agente=reservas (esperado: reservas) motivo="Pregunta disponibilidad con fecha y número de personas, intención de reservar." (2859ms)
+   [ok ] last_agent=reservas | "como pago el anticipo?"
+          -> agente=pagos (esperado: pagos) motivo="El cliente pregunta cómo pagar el anticipo, tema de pagos." (6015ms)
+   [ok ] last_agent=null | "necesito cambiar la fecha de mi reserva ya pagada"
+          -> agente=postventa (esperado: postventa) motivo="El cliente tiene una reserva pagada y quiere cambiar la fecha (gestión post-reserva)." (1418ms)
+   [ok ] last_agent=null | "quiero hablar con una persona real"
+          -> agente=humano (esperado: humano) motivo="El cliente pide hablar con una persona real" (1184ms)
+   [ok ] last_agent=reservas | "somos 4"
+          -> agente=reservas (esperado: reservas (pegajosidad)) motivo="Responde a una pregunta sobre cantidad de personas en plena cotización; sigue el hilo de reservas." (3289ms)
+   [ok ] last_agent=pagos | "si"
+          -> agente=pagos (esperado: pagos (pegajosidad)) motivo="Cliente responde \"sí\" en hilo de pagos, se mantiene el agente actual." (3543ms)
+   [ok ] last_agent=reservas | "aceptan mascotas?"
+          -> agente=informacion (esperado: informacion) motivo="Pregunta suelta sobre mascotas (info general del glamping)" (6324ms)
+
+========================================================================================
+== 7. PIPELINE COMPLETO (handleInbound) con adaptador falso — sin mandar WhatsApp
+========================================================================================
+
+   CLIENTE: Hola
+   BOT    : ✨ ¡Hola! Soy Estefany de La Julita Glamping 🌿🏕️ Me encantaría ayudarte a elegir el plan perfecto.
+📌 Al continuar aceptás nuestra política de datos 👉 https://www.lajulitaglamping.com.co
+Contame 👇 ¿vienen en pareja, en familia o con amigas? 📆 ¿y para qué fecha?
+   (largo: 265 caracteres)
+   (8166ms)
+
+   CLIENTE: quiero conocer los planes y precios
+   BOT    : Elige tu experiencia ideal:
+
+🏕️🌙 Planes por noche
+Incluye noche, jacuzzi y desayuno. La decoración se agrega por valor adicional 🎈
+Desde $ 339.000
+
+💛 Planes intermedios
+Noche, desayuno, jacuzzi, cena y decoración especial 💐
+Desde $ 790.000
+
+🌟🥂 Planes todo incluido
+Noche, cena romántica, jacuzzi, desayuno, fogata, spa, coctelería, servicio a la habitación y más 💕🔥
+Desde $ 1.279.000
+
+Los valores son sin IVA. ¿Cuál de estas experiencias quieres vivir? 💑✨
+   (largo: 465 caracteres)
+   (8007ms)
+
+   CLIENTE: somos 2
+   BOT    : ¡Perfecto! ✨ ¿Es para celebrar algo especial? 🎂💍
+Y cuéntame 📆 ¿para qué fecha sería? Así te cotizo el precio exacto de ese día 💚
+   (largo: 132 caracteres)
+   (5212ms)
+
+   CLIENTE: muestrame otros
+   BOT    : • PLAN CONFORT UNA NOCHE PARA DOS PERSONAS: entre semana $ 959.000, fin de semana $ 1.089.000
+   Incluye turco selvático, cama flotante.
+• PLAN LUJO UNA NOCHE PARA DOS PERSONAS: entre semana $ 999.000, fin de semana $ 1.029.000
+   Incluye turco selvático, cama flotante.
+• PLANES BASICO DOS NOCHES DOS PERSONAS: entre semana $ 769.000, fin de semana $ 879.000, fin de semana con puente $ 1.139.000
+   Incluye cine privado en el chalet, jacuzzi.
+
+¿Alguno de estos te late, o te muestro más?
+   (largo: 489 caracteres)
+   (6719ms)
+
+   CLIENTE: y otros mas?
+   BOT    : • PLAN INTERMEDIO DOS NOCHES DOS PERSONAS: entre semana $ 1.019.000, fin de semana $ 1.139.000, fin de semana con puente $ 1.419.000
+   Incluye cine privado en el chalet, jacuzzi.
+• PLAN PREMIUM DOS NOCHES DOS PERSONAS: entre semana $ 1.139.000, fin de semana $ 1.259.000, fin de semana con puente $ 1.529.000
+   Incluye cine privado en el chalet, cena.
+• PLAN PARAISO UNA NOCHE DOS PERSONAS: entre semana $ 1.490.000, fin de semana $ 1.690.000
+   Incluye spa premium en pareja, turco selvático.
+
+Esos son todos los que tengo para eso. ¿Cuál te gustaría que te detalle?
+   (largo: 569 caracteres)
+   (4821ms)
+
+   CLIENTE: cuentame del plan paraiso
+   BOT    : PLAN PARAISO UNA NOCHE DOS PERSONAS (hasta 4 personas)
+entre semana $ 1.490.000, fin de semana $ 1.690.000
+
+Plan Paraíso una noche La Julita Deluxe
+
+Incluye:
+
+Bienvenida.
+Cama flotante.
+Puerta panorámica de cristal.
+Baño de lujo.
+Desayuno.
+Malla catamarán.
+Jacuzzi.
+Parlante bluetooth.
+Parqueadero.
+Acceso a quebrada natural.
+Ventilador.
+Minibar (consumo adicional).
+Fogata y kit masmelos.
+Decoración premium: (Aviso metalizado grande, 20 globos,  Mesa decorada, canasta picnic decorativa, corazones en la cama, botella vino o champaña).
+Elige una entrada (empanadas, salchipapa, papa a la francesa con queso cheddar).
+Cena dos platos fuertes y dos bebidas.
+Spa premium: Sumérgete en nuestro Spa premium para parejas: Mientras uno disfruta de un masaje de 30 minutos en espalda, cuello, brazos y piernas, el otro recibe una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente, cambian de camilla por otros 30 minutos. Luego, ambos se sumergen en nuestra quebrada de agua fría, pasan al jacuzzi termorregulado y terminan la experiencia en nuestro turco selvático por 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia
+Trío coctelería (eliges 3 cocteles y de cada uno te llegan 2).
+Video recuerdo (se envía editado 3-5 días posterior a la toma)
+Servicio a la habitación.
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+   (largo: 1413 caracteres)
+   (4799ms)
+
+   CLIENTE: a que hora es el check in?
+   BOT    : El check-in es desde las 3:00 p. m. y la máxima hora de llegada es a las 8:00 p. m. 🌙 El check-out es al medio día ✨
+   (largo: 117 caracteres)
+   (4659ms)
+
+   CLIENTE: quiero reservar para el 20 de diciembre
+   BOT    : PLAN PARAISO UNA NOCHE DOS PERSONAS (hasta 4 personas)
+$ 1.690.000 de viernes a domingo
+
+Plan Paraíso una noche La Julita Deluxe
+
+Incluye:
+
+Bienvenida.
+Cama flotante.
+Puerta panorámica de cristal.
+Baño de lujo.
+Desayuno.
+Malla catamarán.
+Jacuzzi.
+Parlante bluetooth.
+Parqueadero.
+Acceso a quebrada natural.
+Ventilador.
+Minibar (consumo adicional).
+Fogata y kit masmelos.
+Decoración premium: (Aviso metalizado grande, 20 globos,  Mesa decorada, canasta picnic decorativa, corazones en la cama, botella vino o champaña).
+Elige una entrada (empanadas, salchipapa, papa a la francesa con queso cheddar).
+Cena dos platos fuertes y dos bebidas.
+Spa premium: Sumérgete en nuestro Spa premium para parejas: Mientras uno disfruta de un masaje de 30 minutos en espalda, cuello, brazos y piernas, el otro recibe una exfoliación corporal seguida de un hidromasaje con chorros de agua caliente, cambian de camilla por otros 30 minutos. Luego, ambos se sumergen en nuestra quebrada de agua fría, pasan al jacuzzi termorregulado y terminan la experiencia en nuestro turco selvático por 30 minutos. Esta experiencia se complementa con aromaterapia, musicoterapia
+Trío coctelería (eliges 3 cocteles y de cada uno te llegan 2).
+Video recuerdo (se envía editado 3-5 días posterior a la toma)
+Servicio a la habitación.
+
+Check in (ingreso):Desde las 3 pm máxima hora de llegada 8:00 pm
+Check out (salida): Medio día
+   (largo: 1394 caracteres)
+   (7762ms)
+
+   CLIENTE: quiero hablar con una persona
+   BOT    : Ya te comunico con el equipo de La Julita para que te ayude con esto — en un momento te escriben por acá.
+   (largo: 105 caracteres)
+   (2967ms)
+
+  estado_conversacion guardado: {"canal":"diagnostico","external_id":"diag-1788900574170","last_agent":"humano","resumen":null,"updated_at":"2026-09-08T20:50:26.247+00:00"}
+  [OK]       last_agent persistido = humano
+  mensajes guardados en Supabase para esta conversación: 18
+
+========================================================================================
+== 8. CANAL WHATSAPP — firma del webhook, parseo y credenciales de YCloud
+========================================================================================
+  [OK]       firma válida aceptada correctamente
+  [OK]       firma falsa rechazada (mismatch)
+  [OK]       webhook viejo rechazado (stale)
+  parseYcloudWebhook devolvió 1 evento(s): [{"canal":"whatsapp","id":"+573212191805","texto":"prueba de diagnostico"}]
+  [OK]       el evento entrante se normalizó correctamente
+  [OK]       credenciales de YCloud válidas (HTTP 200, 824ms)
+  números en la cuenta: ["+573246166787"]
+  [OK]       YCLOUD_FROM_PHONE_NUMBER (+573246166787) corresponde a la cuenta
+
+  (no se mandó ningún mensaje real; usá --enviar-whatsapp=+57... si querés probar el envío)
+
+========================================================================================
+== 9. COLA REDIS / BULLMQ — estado y trabajos fallidos
+========================================================================================
+  [OK]       Redis responde PONG (222ms)
+  conteos de la cola 'inbound': {"active":0,"completed":10,"delayed":0,"failed":0,"paused":0,"prioritized":0,"waiting":0,"waiting-children":0}
+  últimos 0 trabajo(s) fallido(s):
+
+  últimos 5 trabajo(s) completado(s): [{"id":"22","texto":"no me respondiste si podiamos haber 4 adultos en un glamping"},{"id":"21","texto":"con que adicionales cuentas ?"},{"id":"20","texto":"pueden ser 4 adultos ?"},{"id":"19","texto":"si"},{"id":"18","texto":"no me gusta"}]
+
+========================================================================================
+== 10. RECONTACTO AUTOMÁTICO — horarios, cola y texto generado
+========================================================================================
+  habilitado (FOLLOWUP_ENABLED): true
+  pasos de la cadena: 20 min -> 180 min -> 360 min (3 pasos)
+  ventana nocturna: 21:00 a 7:00 (hora de Colombia)
+   [ok ] martes 3:00 am Colombia: nocturno=true (esperado true) -> se manda a las 07:00 Colombia
+   [ok ] martes 10:00 am Colombia: nocturno=false (esperado false) -> se manda de inmediato
+   [ok ] martes 8:59 pm Colombia: nocturno=false (esperado false) -> se manda de inmediato
+   [ok ] martes 9:30 pm Colombia: nocturno=true (esperado true) -> se manda a las 07:00 Colombia
+   [ok ] martes 11:30 pm Colombia: nocturno=true (esperado true) -> se manda a las 07:00 Colombia
+   [ok ] miércoles 7:30 am Colombia: nocturno=false (esperado false) -> se manda de inmediato
+
+  conteos de la cola 'recontacto': {"active":0,"completed":0,"delayed":0,"failed":0,"paused":0,"prioritized":0,"waiting":0,"waiting-children":0}
+  recontactos programados ahora mismo: 0
+
+  --- texto de recontacto (paso intermedio, 8499ms, 76 caracteres) ---
+  ¿Te cuento qué incluye el plan básico o prefieres ver otras opciones para 2?
+
+  --- texto de recontacto (último paso, 9747ms, 116 caracteres) ---
+  Quedé pendiente de mostrarte las otras opciones para 2 personas. ¿Te las envío o te cuento qué incluye el básico? 😊
+
+========================================================================================
+== RESUMEN
+========================================================================================
+  problemas encontrados: 1
+   1. el modelo NUNCA llamó consultar_planes: siempre responde de su propia cabeza (precios inventados o evasivas)
+
+  avisos: 3
+   1. ORCHESTRATOR_MODEL sin definir (se usa el valor por defecto del código)
+   2. ningún plan tiene `domos_id` cargado: el bot deduce el tipo de alojamiento (chalet/clásico/deluxe) del nombre y la descripción. Funciona, pero cargar domos_id lo haría exacto.
+   3. ningún plan tiene `capacidad` cargada: se deduce del nombre ('PARA DOS PERSONAS'). Conviene cargarla.
+
+Reporte guardado en: C:\Users\pataq\OneDrive\Documentos\LaJulita\ProjectChatBot\bot-lajulita\diagnostico-2026-09-08-20-47.txt

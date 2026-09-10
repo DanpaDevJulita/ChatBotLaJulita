@@ -1,0 +1,127 @@
+import axios from "axios";
+
+/**
+ * Disponibilidad REAL contra el motor de reservas en línea de La Julita
+ * (https://engine.lobbypms.com/la-julita-glamping), que es donde vive de verdad el cupo —
+ * la tabla `reservas` de Supabase está vacía porque el bot todavía no crea reservas.
+ *
+ * [2026-09-09] Este endpoint NO es una API pública documentada de LobbyPMS: es el mismo
+ * endpoint interno (`/api/engine/load-rooms`) que usa el widget de reservas del sitio, ya
+ * confirmado en el navegador SIN necesitar sesión ni token — es la misma información que
+ * ve cualquier visitante que entra a cotizar. Como es interno y no oficial, puede cambiar de
+ * forma o dejar de funcionar sin aviso de LobbyPMS: por eso cada función de este archivo
+ * devuelve `null` en vez de lanzar cuando algo no sale como se espera, y quien la llama SIEMPRE
+ * tiene que tratar `null` como "no pude confirmar, no como "no hay cupo".
+ */
+
+const LOAD_ROOMS_URL = "https://engine.lobbypms.com/api/engine/load-rooms";
+const PROPERTY_ID = 16392; // id del establecimiento "La Julita Glamping" en LobbyPMS
+const LANG_CODE = 1; // español
+
+const MESES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-12-19" -> "19-Dec-2026" (el formato que espera el motor). */
+function aFechaLobby(fechaISO: string): string | null {
+  const m = fechaISO.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const [, anio, mesNum, dia] = m;
+  const mes = MESES[Number(mesNum) - 1];
+  if (!mes) return null;
+  return `${Number(dia)}-${mes}-${anio}`;
+}
+
+/** "2026-12-19" + 1 noche -> "2026-12-20", para pedirle a la API el rango de salida. */
+function sumarDias(fechaISO: string, dias: number): string | null {
+  const m = fechaISO.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  d.setUTCDate(d.getUTCDate() + dias);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Las 4 categorías reales en LobbyPMS, mapeadas a las clases de domo que usa el bot
+ * (chalet/clasico/deluxe, ver clasesDePlan en catalogo.ts) — mapeo confirmado por el equipo
+ * el 2026-09-09: "domo romantic es el mismo clasico pero solo capacidad 2 personas, domo
+ * familiar es el clasico con capacidad de 4 personas".
+ */
+export type ClaseDomoBot = "chalet" | "clasico" | "deluxe";
+
+interface CategoriaLobby {
+  clase: ClaseDomoBot;
+  capacidad: number;
+}
+
+const CATEGORIAS_LOBBY: Record<string, CategoriaLobby> = {
+  CHALET: { clase: "chalet", capacidad: 2 },
+  "DOMO DELUXE": { clase: "deluxe", capacidad: 2 },
+  "DOMO ROMANTIC": { clase: "clasico", capacidad: 2 },
+  "DOMO FAMILIAR": { clase: "clasico", capacidad: 4 },
+};
+
+export interface DisponibilidadCategoria {
+  nombreLobby: string;
+  clase: ClaseDomoBot;
+  capacidad: number;
+  disponibles: number; // cuántas unidades de esa categoría quedan libres para el rango pedido
+}
+
+/**
+ * Consulta el cupo real para un rango de fechas. Devuelve `null` si la consulta no se pudo
+ * hacer (red caída, LobbyPMS caído, respuesta con una forma que no reconocemos) — NUNCA
+ * lanza, para que quien llama pueda caer al "le confirmo con el equipo" de siempre en vez de
+ * tumbar el turno completo por una integración que no controlamos.
+ */
+export async function consultarDisponibilidad(
+  fechaEntradaISO: string,
+  noches = 1
+): Promise<DisponibilidadCategoria[] | null> {
+  const start = aFechaLobby(fechaEntradaISO);
+  const fechaSalidaISO = sumarDias(fechaEntradaISO, Math.max(1, noches));
+  const end = fechaSalidaISO ? aFechaLobby(fechaSalidaISO) : null;
+  if (!start || !end) {
+    console.error(`[lobbypms] fecha inválida: ${fechaEntradaISO}`);
+    return null;
+  }
+
+  try {
+    const res = await axios.post(
+      LOAD_ROOMS_URL,
+      new URLSearchParams({ propertyId: String(PROPERTY_ID), langCode: String(LANG_CODE), start, end }).toString(),
+      {
+        headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+        timeout: 10_000,
+      }
+    );
+
+    const data = res.data as { roomCategories?: Record<string, any>; roomNoAvailable?: Record<string, any> };
+    const todas = { ...(data.roomCategories ?? {}), ...(data.roomNoAvailable ?? {}) };
+    const resultado: DisponibilidadCategoria[] = [];
+
+    for (const cat of Object.values(todas)) {
+      const nombre = String(cat?.nombre ?? "").trim().toUpperCase();
+      const mapeo = CATEGORIAS_LOBBY[nombre];
+      if (!mapeo) {
+        // LobbyPMS agregó/renombró una categoría que no conocemos — no la inventamos, la
+        // avisamos en logs para revisar el mapeo, pero no rompemos la consulta de las demás.
+        console.warn(`[lobbypms] categoría sin mapear: "${cat?.nombre}" — revisar CATEGORIAS_LOBBY`);
+        continue;
+      }
+      resultado.push({
+        nombreLobby: cat.nombre,
+        clase: mapeo.clase,
+        capacidad: mapeo.capacidad,
+        disponibles: Number(cat?.rooms_count ?? 0),
+      });
+    }
+
+    if (resultado.length === 0) {
+      console.error("[lobbypms] la respuesta no trajo ninguna categoría reconocible");
+      return null;
+    }
+    return resultado;
+  } catch (err) {
+    console.error("[lobbypms] consultarDisponibilidad falló:", err);
+    return null;
+  }
+}

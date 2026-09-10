@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>La Julita — Panel de administración</title>
+</head>
+<body>
+  <script>
+    fetch("/admin/api/session")
+      .then((r) => r.json())
+      .then((data) => {
+        window.location.href = data && data.isAdmin ? "/admin/dashboard.html" : "/admin/login.html";
+      })
+      .catch(() => (window.location.href = "/admin/login.html"));
+  </script>
+</body>
+</html>

@@ -1,0 +1,104 @@
+ESTRUCTURA REAL DE LA BASE — bot La Julita
+fecha: 2026-09-08T21:42:16.279Z
+archivo: C:\Users\pataq\OneDrive\Documentos\LaJulita\ProjectChatBot\bot-lajulita\estructura-db-2026-09-08-21-42.txt
+
+Nota: 'obligatoria' = la API la exige al insertar (NOT NULL y sin valor por defecto).
+
+tablas visibles en la API: 15
+
+========================================================================================
+== tipo_documento — 0 fila(s)
+========================================================================================
+   id                     integer/integer          PK, OBLIGATORIA
+   nombre                 string/text              OBLIGATORIA
+   seudonimo              string/text              OBLIGATORIA
+
+========================================================================================
+== estado — 0 fila(s)
+========================================================================================
+   id                     integer/integer          PK, OBLIGATORIA
+   descripcion            string/text              OBLIGATORIA
+
+========================================================================================
+== clientes — 0 fila(s)
+========================================================================================
+   id                     integer/integer          PK, OBLIGATORIA
+   nombre                 string/text              OBLIGATORIA
+   tipo_documento_id      integer/integer          OBLIGATORIA, FK -> tipo_documento.id
+   numero_documento       string/text              OBLIGATORIA
+   celular                string/text              OBLIGATORIA
+   correo                 string/text              opcional
+
+========================================================================================
+== acompanantes — 0 fila(s)
+========================================================================================
+   id                     integer/integer          PK, OBLIGATORIA
+   nombre                 string/text              OBLIGATORIA
+   tipo_documento_id      integer/integer          OBLIGATORIA, FK -> tipo_documento.id
+   numero_documento       string/text              OBLIGATORIA
+   celular                string/text              opcional
+   correo                 string/text              opcional
+   reserva_id             integer/integer          OBLIGATORIA, FK -> reservas.id
+
+========================================================================================
+== reservas — 0 fila(s)
+========================================================================================
+   id                     integer/integer          PK, OBLIGATORIA
+   cliente_id             integer/integer          OBLIGATORIA, FK -> clientes.id
+   domo_id                integer/integer          OBLIGATORIA, FK -> domos.id
+   fecha_reservada        string/date              OBLIGATORIA
+   numero_huespedes       integer/integer          OBLIGATORIA
+   valor_total            number/numeric           opcional
+   plan_id                integer/integer          OBLIGATORIA, FK -> planes.id
+   anticipo               number/numeric           opcional
+   saldo                  number/numeric           opcional
+   total                  number/numeric           opcional
+   estado_id              integer/integer          OBLIGATORIA, FK -> estado.id
+   fecha_reserva          string/timestamp with time zone OBLIGATORIA, default=now()
+
+========================================================================================
+== planes — 20 fila(s)
+========================================================================================
+   id                     integer/integer          PK, OBLIGATORIA
+   nombre                 string/text              OBLIGATORIA
+   descripcion            string/text              opcional
+   precio_entre_semana    number/numeric           opcional
+   precio_fin_de_semana   number/numeric           opcional
+   precio_fin_de_semana_puente number/numeric           opcional
+   domos_id               array/integer[]          opcional
+   activo                 boolean/boolean          OBLIGATORIA, default=true
+
+========================================================================================
+== domos — 8 fila(s)
+========================================================================================
+   id                     integer/integer          PK, OBLIGATORIA
+   clase                  integer/integer          OBLIGATORIA, FK -> clase_domo.id
+   opcion                 string/text              opcional
+   capacidad_max          integer/integer          OBLIGATORIA
+
+========================================================================================
+== clase_domo — 3 fila(s)
+========================================================================================
+   id                     integer/integer          PK, OBLIGATORIA
+   nombre                 string/text              OBLIGATORIA
+
+========================================================================================
+== ¿PUEDE EL BOT REGISTRAR UNA RESERVA CON SUS ACOMPAÑANTES?
+========================================================================================
+  [OK]       `clientes` tiene las columnas que el código usa (datos de quien reserva)
+  [OK]       en `clientes` no hay obligatorias sin cubrir
+  [OK]       `acompanantes` tiene las columnas que el código usa (datos del acompañante)
+  [OK]       en `acompanantes` no hay obligatorias sin cubrir
+  [OK]       `reservas` tiene las columnas que el código usa (la reserva que los une)
+  [PROBLEMA] en `reservas` hay columnas OBLIGATORIAS que el bot no puede llenar: domo_id (FK -> domos.id), fecha_reserva — el insert va a fallar hasta que se vuelvan opcionales o el bot tenga ese dato
+  [PROBLEMA] la tabla `tipo_documento` está VACÍA: sin filas, no se puede insertar ningún cliente ni acompañante (corré sql/reserva-datos-cliente.sql)
+  [PROBLEMA] la tabla `estado` está VACÍA: sin filas, no se puede crear ninguna reserva (corré sql/reserva-datos-cliente.sql)
+
+========================================================================================
+== RESUMEN: 3 problema(s)
+========================================================================================
+   1. en `reservas` hay columnas OBLIGATORIAS que el bot no puede llenar: domo_id (FK -> domos.id), fecha_reserva — el insert va a fallar hasta que se vuelvan opcionales o el bot tenga ese dato
+   2. la tabla `tipo_documento` está VACÍA: sin filas, no se puede insertar ningún cliente ni acompañante (corré sql/reserva-datos-cliente.sql)
+   3. la tabla `estado` está VACÍA: sin filas, no se puede crear ninguna reserva (corré sql/reserva-datos-cliente.sql)
+
+Reporte guardado en: C:\Users\pataq\OneDrive\Documentos\LaJulita\ProjectChatBot\bot-lajulita\estructura-db-2026-09-08-21-42.txt
