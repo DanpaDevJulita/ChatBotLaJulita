@@ -1,10 +1,17 @@
 import type { ToolDefinition } from "../../../core/tools/types.js";
+<<<<<<< HEAD
 import { buscarPlanPorNombre, precioPara, tarifaDeFecha, ETIQUETA_TARIFA, segmentoDePlan } from "./planes.js";
+=======
+import { buscarPlanPorNombre, precioPara, tarifaDeFecha, ETIQUETA_TARIFA } from "./planes.js";
+>>>>>>> origin/BotDevelopment
 import { registrarDatosReserva, type DatosPersona } from "../../../core/db/reservasRepo.js";
 import { cargarCatalogoDomos, claseParaAgrupar, capacidadDePlan } from "./planes.js";
 import { crearBloqueo, type ClaseDomoBloqueo } from "../../../core/db/bloqueosRepo.js";
 import { programarLiberacion, BLOQUEO_MINUTOS } from "../../../core/queue/bloqueoQueue.js";
+<<<<<<< HEAD
 import { resolverCategoryId, crearBlockLobby, sumarDias } from "../../../core/integrations/lobbypms.js";
+=======
+>>>>>>> origin/BotDevelopment
 import type { ToolContext } from "../../../core/tools/types.js";
 
 function formatMoney(n: number): string {
