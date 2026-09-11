@@ -2,10 +2,7 @@ import { leerPromptDeAgente, type DefinicionAgente } from "../_tipos.js";
 import { consultarPlanesTool, consultarAdicionalesTool } from "./herramientas/planes.js";
 import { consultarFechasAlternativasTool } from "./herramientas/disponibilidad.js";
 import { registrarDatosReservaTool } from "./herramientas/reserva.js";
-<<<<<<< HEAD
-=======
 import { enviarDatosPagoTool } from "./herramientas/pago.js";
->>>>>>> origin/BotDevelopment
 // [2026-09-08] Estas dos siguen sin datos cargados en Supabase (faq, configuracion) — se dejan
 // importadas en comentario para tener a la vista qué falta activar, no por error. Para
 // reactivar una: descomentá el import, su línea en `herramientas` Y el bloque que le
@@ -34,12 +31,9 @@ export const agente: DefinicionAgente = {
     consultarAdicionalesTool,
     consultarFechasAlternativasTool,
     registrarDatosReservaTool,
-<<<<<<< HEAD
-=======
     // [2026-09-10] Version 1 del modulo de pagos: entrega el link y nada mas. No confirma
     // pagos — eso lo verifica el equipo mirando Bold (ver src/agentes/pagos/LEEME.md).
     enviarDatosPagoTool,
->>>>>>> origin/BotDevelopment
     // preguntasFrecuentesTool, // [PENDIENTE] reactivar cuando se cargue la tabla `faq`
     // consultarHorariosTool,   // [PENDIENTE] reactivar cuando se cargue `configuracion`
   ],

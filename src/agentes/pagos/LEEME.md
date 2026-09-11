@@ -1,17 +1,3 @@
-<<<<<<< HEAD
-# Bot de Pagos — sin construir todavía
-
-Esta carpeta está reservada para el bot de Pagos. Hoy el tema `pagos` lo atiende el bot de
-**ventas** (ver `src/agentes/ventas/agente.ts`, campo `atiende`).
-
-El diseño está en `prompt-de-diseno.md`, pero **quedó desactualizado en un punto importante**:
-asume una herramienta `enviarDatosPago` que había que construir desde cero. Después descubrimos
-que la API de LobbyPMS ya ofrece enlaces de pago (`POST /api/v1/payment/link`), que además
-permiten **consultar si el cliente ya pagó** (`GET`) sin depender de que mande el comprobante.
-Ver `REFERENCIA-API-LOBBYPMS.md` en la raíz del proyecto, sección 10.
-
-Para construirlo: seguí los pasos de `../LEEME.md` y sacá `"pagos"` del `atiende` de ventas.
-=======
 # Bot de Pagos — sin construir todavía (pero el pago ya funciona)
 
 Esta carpeta sigue reservada para un bot de Pagos propio. **No existe todavía y no es urgente**:
@@ -51,17 +37,25 @@ de LobbyPMS también genera enlaces de pago —`POST /api/v1/payment/link`— y 
 **consultar si el cliente ya pagó** con un `GET`, sin webhook y sin depender del comprobante.
 Ver `REFERENCIA-API-LOBBYPMS.md`, sección 10.
 
-Por qué no se usó esa vía todavía: el enlace de LobbyPMS exige un **`booking_id` que exista en
-LobbyPMS**, y hoy el bot crea la reserva solo en Supabase. Hasta que el bot cree la reserva
-también en LobbyPMS (pendientes 2, 3 y 4 de esa misma referencia: mapear `category_id`,
-`documents` y `channel`), esa puerta está cerrada. Bold no depende de nada de eso, por eso es lo
-que está andando hoy.
+Por qué no se usó esa vía cuando se construyó la versión 1: el enlace de LobbyPMS exige un
+**`booking_id` que exista en LobbyPMS**, y en ese momento el bot creaba la reserva solo en
+Supabase. Bold no depende de nada de eso, por eso es lo que está andando hoy.
 
-Cuando el bot sí cree reservas en LobbyPMS, vale la pena volver a mirar esto: con el `GET` de
-LobbyPMS el webhook de Bold dejaría de hacer falta.
+> **[2026-09-10, al mergear esta rama con `master`] Esa puerta ya no está cerrada.** La rama de
+> Lobby (puntos 1.2.c y 1.2.d, ver `REGLAS-RESERVAS-LOBBY.md`) hizo justamente lo que faltaba: el
+> bot resuelve el `category_id` en caliente, bloquea el cupo real con `POST /block` y, cuando el
+> equipo confirma el pago con `/confirmar`, crea la reserva real con `POST /bookings` y guarda el
+> `booking_id` en `bloqueos_temporales.lobby_booking_id`. O sea que **ya existe un `booking_id` de
+> LobbyPMS** para las reservas que crea el bot.
+>
+> Eso no cambia nada de la versión 1 (Bold sigue siendo lo que entrega los links hoy), pero sí
+> reabre la comparación: con el `GET` de LobbyPMS el webhook de Bold de la versión 2 dejaría de
+> hacer falta. Ojo con el orden, que es el detalle fino: hoy el `booking_id` recién aparece
+> DESPUÉS de que el equipo confirma el pago, y el link de pago se necesita ANTES. Para usar la vía
+> de LobbyPMS habría que crear la reserva antes de cobrar (o crearla en estado borrador), que es
+> una decisión de flujo, no un problema técnico.
 
 ## Para construir el bot de pagos propio
 
 Seguí los pasos de `../LEEME.md`, sacá `"pagos"` del `atiende` de ventas y llevate
 `herramientas/pago.ts` a esta carpeta.
->>>>>>> origin/BotDevelopment

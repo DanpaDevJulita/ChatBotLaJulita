@@ -1,22 +1,18 @@
 import type { ToolDefinition } from "../../../core/tools/types.js";
-<<<<<<< HEAD
 import { buscarPlanPorNombre, precioPara, tarifaDeFecha, ETIQUETA_TARIFA, segmentoDePlan } from "./planes.js";
-=======
-import { buscarPlanPorNombre, precioPara, tarifaDeFecha, ETIQUETA_TARIFA } from "./planes.js";
->>>>>>> origin/BotDevelopment
 import { registrarDatosReserva, type DatosPersona } from "../../../core/db/reservasRepo.js";
 import { cargarCatalogoDomos, claseParaAgrupar, capacidadDePlan } from "./planes.js";
 import { crearBloqueo, type ClaseDomoBloqueo } from "../../../core/db/bloqueosRepo.js";
 import { programarLiberacion, BLOQUEO_MINUTOS } from "../../../core/queue/bloqueoQueue.js";
-<<<<<<< HEAD
 import { resolverCategoryId, crearBlockLobby, sumarDias } from "../../../core/integrations/lobbypms.js";
-=======
->>>>>>> origin/BotDevelopment
 import type { ToolContext } from "../../../core/tools/types.js";
 
 function formatMoney(n: number): string {
   return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n);
 }
+
+/** El bloqueo (interno y el real de LobbyPMS) es siempre de una noche — limitación de siempre. */
+const NOCHES_BLOQUEO = 1;
 
 interface PersonaArgs {
   nombre?: string;
@@ -262,12 +258,15 @@ export const registrarDatosReservaTool: ToolDefinition = {
         let lobbyCategoryId: number | null = null;
         try {
           const categoryId = await resolverCategoryId(clase, capacidad, args!.fecha!, 1);
-          const fechaSalida = categoryId != null ? sumarDias(args!.fecha!, 1) : null;
-          if (categoryId != null && fechaSalida) {
+          // [2026-09-11] `end_date` de LobbyPMS es INCLUSIVO (la última noche, no la salida): para
+          // 1 noche va la misma fecha de entrada. Antes acá iba `sumarDias(fecha, 1)` y cada
+          // bloqueo de 10 minutos apartaba dos noches. Ver la nota en lobbypms.ts.
+          const ultimaNoche = categoryId != null ? sumarDias(args!.fecha!, NOCHES_BLOQUEO - 1) : null;
+          if (categoryId != null && ultimaNoche) {
             const block = await crearBlockLobby({
               categoryId,
               fechaEntradaISO: args!.fecha!,
-              fechaSalidaISO: fechaSalida,
+              fechaUltimaNocheISO: ultimaNoche,
               minutos: BLOQUEO_MINUTOS,
               nota: `Bot WhatsApp — ${cliente.nombre} — pendiente de pago`,
             });

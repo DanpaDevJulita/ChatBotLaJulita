@@ -31,6 +31,21 @@ Códigos que devuelve: 200, 201, 204, 206, 400, 401, 403, 404, 422, 500, 503.
 Parámetros: `api_token`, `start_date` (YYYY-mm-dd), `end_date`, y opcionales `category_id`,
 `page`, `paginate` (máx. 100).
 
+> **⚠️ `end_date` es INCLUSIVO — es la ÚLTIMA NOCHE, no el día de salida.** Medido contra la API
+> el 2026-09-11 con `scripts/diagnostico-cupo.ts`:
+>
+> ```
+> start_date=2026-09-11  end_date=2026-09-11  ->  contesta por 1 fecha:  el 11
+> start_date=2026-09-11  end_date=2026-09-12  ->  contesta por 2 fechas: el 11 y el 12
+> ```
+>
+> O sea que para UNA noche hay que mandar `start_date` y `end_date` con la MISMA fecha; para N
+> noches, `end_date = entrada + (N - 1)`. El código asumía lo contrario (rango `[entrada, salida)`)
+> y pedía una noche de más: como el bot exige cupo en todas las noches del rango (toma el mínimo),
+> le decía al cliente "no hay cupo" cada vez que la noche SIGUIENTE estaba llena. Caso real: el
+> DOMO FAMILIAR del 11 de septiembre tenía 1 unidad libre y el 12 tenía 0, y el bot lo reportó sin
+> cupo. Corregido en `consultarDisponibilidadPorDia`.
+
 **Forma real de la respuesta** (importante: NO es un arreglo plano como sugería el informe del
 n8n — las categorías vienen anidadas dentro de cada fecha):
 
@@ -61,6 +76,11 @@ LobbyPMS en vez de los nuestros.
 Parámetros (JSON): `api_token`, `category_id`, `start_date`, `end_date`, y opcionales
 `number_rooms` (por defecto 1), **`time` (minutos que se mantiene el bloqueo — si no se envía,
 LobbyPMS usa 60)** y `note`.
+
+> **⚠️ `end_date` acá también es la ÚLTIMA NOCHE, no el día de salida.** La evidencia es el propio
+> calendario: un bloqueo de 1 noche creado con `start_date=11` y `end_date=12` quedó pintado como
+> "Blo..." en las DOS celdas (11 y 12), o sea apartó dos noches. Para una noche va la misma fecha
+> en los dos parámetros. Corregido en `crearBlockLobby` (`fechaUltimaNocheISO`).
 
 Respuesta: `{ "blocked_ids": [123456], "rooms": [ { "room_id": 123456, "block_id": 123456 } ] }`
 

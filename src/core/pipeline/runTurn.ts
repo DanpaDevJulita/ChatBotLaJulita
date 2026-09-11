@@ -8,11 +8,7 @@ import {
 import { leerPromptBase } from "../../agentes/_tipos.js";
 import { openrouter, LLM_MODEL } from "../llm/openrouter.js";
 import { insertMensaje, listMensajes } from "../db/mensajesRepo.js";
-<<<<<<< HEAD
 import { getEstado, setLastAgent, marcarEscalado, marcarAvisoHumano } from "../db/estadoRepo.js";
-=======
-import { getEstado, setLastAgent } from "../db/estadoRepo.js";
->>>>>>> origin/BotDevelopment
 import { enrutarMensaje } from "../../agentes/orquestador/route.js";
 import { enviarSeguro } from "./enviar.js";
 import { programarRecontacto, cancelarRecontacto } from "../queue/recontactoQueue.js";

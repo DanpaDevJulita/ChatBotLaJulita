@@ -73,6 +73,13 @@ export async function crearReservaRealDesdeBloqueo(bloqueo: Bloqueo): Promise<Re
     return { ok: false, motivo: `no encontré los datos del cliente #${bloqueo.cliente_id} en Supabase` };
   }
 
+  // ⚠️ [2026-09-11] SIN VERIFICAR: acá `end_date` se manda como el día de SALIDA (entrada + noches),
+  // que es lo habitual para una reserva de hotel. Pero en `available-rooms` y en `POST /block` se
+  // comprobó que LobbyPMS usa `end_date` INCLUSIVO (la última noche) — ver la nota en lobbypms.ts.
+  // Si `POST /bookings` se comportara igual, cada reserva de 1 noche se crearía con una noche de
+  // más. Todavía no se creó ninguna reserva real por API (no hay `lobby_booking_id` en ninguna
+  // fila), así que no hay evidencia en un sentido ni en el otro: ANTES de la primera reserva real
+  // hay que crear una de prueba y mirar en el calendario de LobbyPMS cuántas noches ocupa.
   const fechaSalida = sumarDias(bloqueo.fecha_entrada, Math.max(1, bloqueo.noches ?? 1));
   if (!fechaSalida) {
     return { ok: false, motivo: `la fecha de entrada guardada no es válida: ${bloqueo.fecha_entrada}` };

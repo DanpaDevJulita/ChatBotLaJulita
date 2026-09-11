@@ -22,9 +22,6 @@ dist/
 # Sistema operativo y editores
 .DS_Store
 Thumbs.db
-<<<<<<< HEAD
-=======
 
 # Carpeta de descartes local (archivos superados por la reestructura)
 _to_delete/
->>>>>>> origin/BotDevelopment

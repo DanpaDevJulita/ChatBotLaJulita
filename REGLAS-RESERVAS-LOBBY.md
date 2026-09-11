@@ -113,6 +113,31 @@ el bot ya lo haya soltado por dentro.
   se decida la política de cancelación (punto 5 de la lista general) — pero eso todavía no está
   definido y no se conectó nada de cancelación hoy.
 
+## [2026-09-11] Tres arreglos después de probar con clientes reales
+
+El caso que los destapó: el cliente pidió el 11 de septiembre para plan familiar, el bot contestó
+"ya no tiene cupo" y en el calendario de LobbyPMS ese día SÍ tenía una unidad libre.
+
+1. **`end_date` de LobbyPMS es la última NOCHE, no el día de salida.** El código asumía el rango
+   `[entrada, salida)` y pedía una noche de más, así que el bot exigía que la noche SIGUIENTE
+   también estuviera libre. El 11 tenía 1 libre y el 12 tenía 0 → reportaba sin cupo. Medido con
+   `scripts/diagnostico-cupo.ts` y documentado en `REFERENCIA-API-LOBBYPMS.md`. Corregido en
+   `consultarDisponibilidadPorDia` (consulta) y en `crearBlockLobby` (bloqueo).
+2. **Cada bloqueo de 10 minutos apartaba dos noches** por el mismo motivo — en el calendario se
+   veían las dos celdas en "Blo...". Además, un bloqueo abandonado que no se libera se queda
+   comiendo inventario real: el diagnóstico ahora los lista y los puede liberar con
+   `--liberar-bloqueo=<block_id>`.
+3. **Se restaba dos veces el mismo cupo.** Desde que el bloqueo también es real en LobbyPMS, lo
+   que devuelve `available-rooms` YA tiene descontado ese cupo; restarle encima el conteo del
+   candado interno escondía disponibilidad. Ahora `contarBloqueosActivos` solo cuenta los
+   bloqueos SIN `lobby_block_id`, que son los que LobbyPMS no conoce.
+
+**Queda sin verificar (importante):** `POST /bookings` sigue mandando `end_date` como día de
+salida. Si ese endpoint se comporta como los otros dos, cada reserva de 1 noche se crearía con una
+noche de más. Todavía no se creó ninguna reserva real por API, así que no hay evidencia: antes de
+la primera reserva de verdad hay que crear una de prueba y mirar cuántas noches ocupa en el
+calendario. Está marcado con un `⚠️` en `reservaLobby.ts`.
+
 ## Archivos tocados
 
 - `src/core/integrations/lobbypms.ts` — `resolverCategoryId`, `crearBlockLobby`,

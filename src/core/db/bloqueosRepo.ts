@@ -104,6 +104,13 @@ export async function crearBloqueo(datos: NuevoBloqueo): Promise<Bloqueo | null>
  * Cuántos bloqueos ACTIVOS (pendientes y todavía no vencidos) hay para esa clase+capacidad+
  * fecha, sin contar los de esta misma conversación (para que un cliente vea su propio bloqueo
  * como "su cupo", no como cupo perdido). Se usa para restarle a lo que devuelve LobbyPMS.
+ *
+ * [2026-09-11] Solo se cuentan los bloqueos SIN `lobby_block_id`, o sea los que LobbyPMS no
+ * conoce. Desde que el bot también bloquea de verdad en LobbyPMS (POST /block, punto 1.2.c), un
+ * bloqueo con `lobby_block_id` YA está descontado en el número que devuelve `available-rooms`:
+ * restarlo otra vez acá contaba dos veces el mismo cupo y le escondía disponibilidad real a los
+ * demás clientes. El candado interno sigue valiendo, y se sigue restando, cuando el bloqueo real
+ * no se pudo crear (API caída, IP sin autorizar, categoría sin resolver).
  */
 export async function contarBloqueosActivos(
   claseDomo: ClaseDomoBloqueo,
@@ -119,7 +126,8 @@ export async function contarBloqueosActivos(
     .eq("capacidad", capacidad)
     .eq("fecha_entrada", fechaEntrada)
     .eq("estado", "pendiente")
-    .gt("expira_en", new Date().toISOString());
+    .gt("expira_en", new Date().toISOString())
+    .is("lobby_block_id", null);
   if (excluir) {
     // NOT(canal = X AND external_id = Y)  ==  (canal != X) OR (external_id != Y) — así el
     // propio bloqueo de esta conversación no cuenta como "cupo ocupado por otro".

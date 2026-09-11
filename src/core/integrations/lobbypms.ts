@@ -178,8 +178,21 @@ function explicar(estado: EstadoApiOficial): string {
 /**
  * GET /api/v1/available-rooms con el detalle DÍA POR DÍA.
  *
- * `end_date` es el día de SALIDA y no viene incluido en la respuesta (rango [entrada, salida)),
- * igual que se cuentan las noches: 1 noche = entrada + 1 día.
+ * `end_date` es INCLUSIVO: es la ÚLTIMA NOCHE que se consulta, NO el día de salida. Para una
+ * noche del 11, se pide `start_date=11` y `end_date=11`.
+ *
+ * [2026-09-11] Esto estaba al revés y causaba un bug real: el código asumía el rango
+ * `[entrada, salida)` y mandaba `end_date = entrada + noches`, o sea una noche de más. Medido
+ * contra la API (ver scripts/diagnostico-cupo.ts):
+ *
+ *     start_date=2026-09-11  end_date=2026-09-11  ->  contesta por 1 fecha: el 11
+ *     start_date=2026-09-11  end_date=2026-09-12  ->  contesta por 2 fechas: el 11 y el 12
+ *
+ * Como `agregarPorRango` exige cupo en TODAS las fechas que contesta (toma el mínimo, que es lo
+ * correcto para una estadía de varias noches), pedir una noche de más hacía que el bot le dijera
+ * "no hay cupo" al cliente cada vez que la noche SIGUIENTE estaba llena, aunque la suya
+ * estuviera libre. Caso real: el DOMO FAMILIAR del 11 de septiembre tenía 1 unidad libre y el
+ * 12 tenía 0 — el bot lo reportó como sin cupo.
  */
 export async function consultarDisponibilidadPorDia(
   fechaEntradaISO: string,
@@ -197,8 +210,10 @@ export async function consultarDisponibilidadPorDia(
     return null;
   }
 
-  const fechaSalidaISO = sumarDias(fechaEntradaISO, Math.max(1, noches));
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaEntradaISO) || !fechaSalidaISO) {
+  // La última noche del rango, que es lo que espera `end_date` (inclusivo): 1 noche -> la misma
+  // fecha de entrada; 2 noches -> entrada + 1; etc.
+  const ultimaNocheISO = sumarDias(fechaEntradaISO, Math.max(1, noches) - 1);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaEntradaISO) || !ultimaNocheISO) {
     console.error(`[lobbypms] fecha inválida: ${fechaEntradaISO}`);
     return null;
   }
@@ -216,7 +231,7 @@ export async function consultarDisponibilidadPorDia(
         params: {
           api_token: API_TOKEN,
           start_date: fechaEntradaISO,
-          end_date: fechaSalidaISO,
+          end_date: ultimaNocheISO,
           paginate: 100,
           page: pagina,
         },
@@ -454,7 +469,9 @@ export async function buscarFechasAlternativas(
   const nochesReales = Math.max(1, noches);
   const dias = Math.max(1, diasAlrededor);
 
-  // El rango tiene que cubrir la última fecha de entrada candidata MÁS sus noches.
+  // El rango tiene que cubrir la última fecha de entrada candidata MÁS sus noches. Con `end_date`
+  // inclusivo, pedir `dias + nochesReales` "noches" devuelve exactamente hasta
+  // `fechaBase + dias + nochesReales - 1`, que es la última noche de la última estadía candidata.
   const porDia = await consultarDisponibilidadPorDia(fechaBaseISO, dias + nochesReales);
   if (!porDia || porDia.length === 0) return null;
 
@@ -528,7 +545,15 @@ export async function resolverCategoryId(
 export interface NuevoBlockLobby {
   categoryId: number;
   fechaEntradaISO: string;
-  fechaSalidaISO: string;
+  /**
+   * [2026-09-11] La ÚLTIMA NOCHE del bloqueo, no el día de salida — `end_date` es inclusivo,
+   * igual que en `available-rooms` (ver la nota larga en consultarDisponibilidadPorDia). Para
+   * una noche: la misma fecha de entrada.
+   *
+   * Antes acá se mandaba la fecha de salida (entrada + 1) y cada bloqueo de 10 minutos apartaba
+   * DOS noches en vez de una: en el calendario de LobbyPMS se veía "Blo..." en las dos celdas.
+   */
+  fechaUltimaNocheISO: string;
   /** Minutos que dura el bloqueo. Si no se manda, LobbyPMS lo deja en 60 (su valor por defecto). */
   minutos: number;
   nota?: string;
@@ -552,7 +577,7 @@ export async function crearBlockLobby(datos: NuevoBlockLobby): Promise<BlockLobb
         api_token: API_TOKEN,
         category_id: datos.categoryId,
         start_date: datos.fechaEntradaISO,
-        end_date: datos.fechaSalidaISO,
+        end_date: datos.fechaUltimaNocheISO,
         number_rooms: 1,
         time: datos.minutos,
         note: datos.nota ?? "Bloqueo del bot de WhatsApp — pendiente de pago",
