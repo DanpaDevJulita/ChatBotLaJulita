@@ -3,7 +3,7 @@ import { buscarPlanPorNombre, precioPara, tarifaDeFecha, ETIQUETA_TARIFA, segmen
 import { registrarDatosReserva, type DatosPersona } from "../../../core/db/reservasRepo.js";
 import { cargarCatalogoDomos, claseParaAgrupar, capacidadDePlan } from "./planes.js";
 import { crearBloqueo, type ClaseDomoBloqueo } from "../../../core/db/bloqueosRepo.js";
-import { programarLiberacion, BLOQUEO_MINUTOS } from "../../../core/queue/bloqueoQueue.js";
+import { programarLiberacion, programarChequeosTempranos, BLOQUEO_MINUTOS } from "../../../core/queue/bloqueoQueue.js";
 import { resolverCategoryId, crearBlockLobby, sumarDias } from "../../../core/integrations/lobbypms.js";
 import type { ToolContext } from "../../../core/tools/types.js";
 
@@ -60,7 +60,7 @@ export const registrarDatosReservaTool: ToolDefinition = {
   name: "registrar_datos_reserva",
   permitirRedaccion: true,
   description:
-    "Guarda los datos para dejar la reserva registrada: quien reserva (nombre completo, tipo y número de documento, celular y correo opcional) y CADA acompañante (nombre completo, tipo y número de documento). Si el plan es familiar o de amigos, pedile TAMBIÉN la edad de cada acompañante antes de llamar esta herramienta (hace falta para saber cuántos son adultos y cuántos niños) — en cualquier otro plan no hace falta. Llamala solo cuando ya tengas el plan elegido, la fecha, cuántas personas son y los datos de todos los huéspedes. Si falta algún dato te dice cuál pedir. En planes familiares hay un cupo real: hasta 3 personas si todas son adultas, o hasta 2 adultos y 2 niños (4 en total) — si no alcanza, te lo dice para que ofrezcas otra opción. La reserva queda como pendiente de pago y el equipo confirma el cupo.",
+    "Guarda los datos para dejar la reserva registrada: quien reserva (nombre completo, tipo y número de documento, celular y correo opcional) y CADA acompañante (nombre completo, tipo y número de documento). Si el plan es familiar o de amigos, pedile TAMBIÉN la edad de cada acompañante antes de llamar esta herramienta (hace falta para saber cuántos son adultos y cuántos niños) — en cualquier otro plan no hace falta. Llamala solo cuando ya tengas el plan elegido, la fecha, cuántas personas son y los datos de todos los huéspedes. Si falta algún dato te dice cuál pedir. En planes familiares hay un cupo real: hasta 3 personas si todas son adultas, o hasta 2 adultos y 2 niños (4 en total) — si no alcanza, te lo dice para que ofrezcas otra opción. Cuando devuelva ok con un reserva_id, llamá ENSEGUIDA a preguntar_forma_de_pago con ese reserva_id, en el mismo turno y sin escribirle nada al cliente en el medio: ese es el mensaje que recibe, con las dos opciones de pago (abono del 50% o total) y sus montos. El link va después, cuando el cliente elija. Llamala UNA sola vez por reserva: si ya la llamaste en esta conversación, no la vuelvas a llamar ni le pidas los datos otra vez.",
   parameters: {
     type: "object",
     properties: {
@@ -299,6 +299,9 @@ export const registrarDatosReservaTool: ToolDefinition = {
         });
         if (bloqueo) {
           await programarLiberacion(bloqueo.id, ctx.channel, ctx.externalId);
+          // [2026-09-13] Mismo reloj, mismo momento: además de la liberación a los BLOQUEO_MINUTOS,
+          // un par de chequeos de paso a Bold mientras el cupo sigue apartado (ver bloqueoQueue.ts).
+          await programarChequeosTempranos(bloqueo.id, ctx.channel, ctx.externalId);
           avisoBloqueo =
             `\n\n⏳ Te dejo apartado este cupo por ${BLOQUEO_MINUTOS} minutos mientras confirmás el pago — ` +
             "si pasa ese tiempo sin confirmación, se libera automáticamente y podría tomarlo otro cliente.";
@@ -337,6 +340,15 @@ export const registrarDatosReservaTool: ToolDefinition = {
         ok: true,
         modo: resultado.modo,
         reserva_id: resultado.reserva_id,
+        // [2026-09-11] Lo que el agente tiene que hacer a continuación, dicho sin vueltas: si hay
+        // `reserva_id`, el turno sigue con `preguntar_forma_de_pago` (abono del 50% o total) y el
+        // cliente recibe esa pregunta con los dos montos. El link viene DESPUÉS, cuando elija. Si
+        // no hay `reserva_id`, la fila de `reservas` no se pudo crear y no existe reserva que
+        // cobrar: pedirle los datos otra vez al cliente NO arregla nada (ya los dio), hay que
+        // pasarlo al equipo.
+        siguiente_paso: resultado.reserva_id
+          ? "Llamá preguntar_forma_de_pago con este reserva_id AHORA, en este mismo turno, sin escribirle nada al cliente antes. NO llames enviar_datos_pago todavía: el cliente primero tiene que elegir si abona el 50% o paga el total."
+          : "No se pudo crear la reserva en la base: NO vuelvas a pedir los datos. Decile al cliente que el equipo le confirma el cupo y los datos de pago en un momento.",
         cliente_id: resultado.cliente_id,
         acompanantes_registrados: resultado.acompanantes_registrados,
         acompanantes_recibidos: acompanantes.length,
@@ -345,13 +357,29 @@ export const registrarDatosReservaTool: ToolDefinition = {
         personas,
         valor_total: valor,
       },
+      // [2026-09-11] Este texto es SOLO un respaldo. El mensaje que de verdad ve el cliente lo
+      // arma `preguntar_forma_de_pago`, que el agente llama enseguida, en este mismo turno (ahí
+      // van los dos montos: abono del 50% o total). Si por lo que sea no se llega a llamar, este
+      // texto tiene que poder quedar solo — por eso NO promete un link ni pregunta qué medio de
+      // pago prefiere (ya no se ofrece QR ni tarjeta de crédito con recargo: todos los pagos van
+      // por el link de Bold, de cuenta débito) y NO repite ninguna cifra que no sea el total.
       reply_to_user:
         `¡Listo! Ya quedaron registrados tus datos para el ${plan.nombre} el ${args!.fecha} ` +
         `para ${personas} ${personas === 1 ? "persona" : "personas"}, por ${valorTexto} (sin IVA). ` +
         acompanantesTexto +
-        "El equipo de La Julita te confirma el cupo y te envía los datos de pago para dejarlo apartado con el abono del 50%. " +
-        "¿Prefieres pagar con QR (llave Bre-B, sin costo) o con link de tarjeta (suma 6%)?" +
+        "Ya mismo te digo cómo puedes pagar para dejar la fecha apartada." +
         avisoBloqueo,
+      // [2026-09-11] Antes esto se pedía SOLO con palabras (la description de la herramienta y
+      // el `siguiente_paso` de arriba) y en la práctica el modelo a veces igual respondía con
+      // texto plano (a menudo casi calcado del `reply_to_user` de respaldo) en vez de llamar a
+      // la herramienta de pago — el cliente se quedaba sin nada aunque la reserva sí se hubiera
+      // creado. Con esto, runTurn.ts fuerza el próximo hop a llamarla sí o sí.
+      //
+      // Ojo con CUÁL se fuerza: va `preguntar_forma_de_pago`, NO `enviar_datos_pago`. Desde que
+      // el link sale con el monto ya fijado, mandarlo antes de que el cliente elija sería
+      // cobrarle un valor que nunca aceptó; al forzar la herramienta que solo pregunta, ese
+      // turno no puede terminar en un link ni aunque el modelo quiera.
+      forzarSiguienteHerramienta: resultado.reserva_id ? "preguntar_forma_de_pago" : undefined,
     };
   },
 };

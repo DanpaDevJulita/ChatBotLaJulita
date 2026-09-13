@@ -19,6 +19,32 @@ function limpiar(texto: string | null | undefined): string {
 }
 
 /**
+ * [2026-09-11] Varias descripciones de planes (cargadas por el equipo antes de que existieran
+ * las columnas de precio separadas) traen el precio escrito A MANO adentro del texto libre
+ * ("Entre semana (lunes a viernes): $590.000..."). El problema: si después el equipo cambia el
+ * precio de verdad (en `precio_entre_semana`/`precio_fin_de_semana`/`precio_fin_de_semana_puente`
+ * — la fuente real, la que arma `lineaPrecio`/`preciosDe`), ese texto suelto de la descripción
+ * queda desactualizado, y el cliente termina viendo DOS precios distintos para el mismo plan en
+ * el mismo mensaje: el correcto (de la columna) y el viejo (pegado en la descripción). Así se
+ * descubrió: el PLAN FAMILIAR 3 PERSONAS (id 30) tenía el precio ya editado en la columna, pero
+ * la descripción seguía con el valor anterior, y el mensaje final citaba ESE. Una revisión
+ * encontró el mismo problema en otros 4 planes (ids 3, 28, 31, 32).
+ *
+ * En vez de pedirle al equipo que mantenga sincronizados dos lugares distintos (columna Y texto
+ * libre) cada vez que cambie un precio, se quita de raíz: cualquier línea de la descripción que
+ * parezca un precio ("$" seguido de números) se descarta antes de mostrarla. El único precio que
+ * el cliente ve sale SIEMPRE de las columnas — nunca de texto libre.
+ */
+function quitarLineasDePrecio(texto: string): string {
+  return texto
+    .split("\n")
+    .filter((linea) => !/\$\s?\d/.test(linea))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
  * Precios de un plan, saltando los que no aplican. OJO: en la tabla `planes` un precio que
  * no aplica está cargado como 0 (por ejemplo, un pasadía de domingo no tiene tarifa de
  * entre semana) — antes eso se le mostraba al cliente como "$ 0", o sea el bot le decía que
@@ -543,11 +569,22 @@ export const consultarPlanesTool: ToolDefinition = {
     },
     ctx: ToolContext
   ) => {
-    const planes = await planesRepo.list(true);
-    if (planes.length === 0) {
+    const planesCrudos = await planesRepo.list(true);
+    if (planesCrudos.length === 0) {
       const msg = "Todavía no tengo los planes cargados — dale la pregunta al equipo de La Julita.";
       return { result: [], reply_to_user: msg };
     }
+    // [2026-09-11] La descripción se limpia UNA sola vez acá, apenas se traen los planes de la
+    // base — no solo al armar el texto que lee el cliente (`detalle`, más abajo). Motivo: el
+    // `result` que se le pasa al modelo para que redacte (ver `{ ...p, cupo }` y `coincidencias`
+    // más abajo) lleva el plan CRUDO, descripción incluida — y esa es justo la fuente donde
+    // seguía viajando el precio viejo escrito a mano. Aunque el texto que arma esta herramienta
+    // ya viniera limpio, el precio viejo colado en `result.descripcion` bastaba para que la
+    // verificación anti-alucinación de runTurn.ts lo diera por "válido" (revisa TODO lo que
+    // devuelve la herramienta, no solo el texto) y el modelo lo repitiera igual. Limpiando acá,
+    // en el único lugar donde se leen los planes, ninguna rama de abajo puede filtrar el precio
+    // viejo por ningún camino.
+    const planes = planesCrudos.map((p) => ({ ...p, descripcion: quitarLineasDePrecio(limpiar(p.descripcion)) }));
     const cat = await cargarCatalogoDomos();
     const tarifa = args?.fecha ? tarifaDeFecha(args.fecha, args.festivo) : null;
 
@@ -586,7 +623,7 @@ export const consultarPlanesTool: ToolDefinition = {
         const precio = tarifa ? precioPara(p, tarifa) : null;
         const lineaPrecio =
           precio != null ? `${formatMoney(precio)} ${ETIQUETA_TARIFA[tarifa as Tarifa]}` : preciosDe(p);
-        const detalle = limpiar(p.descripcion);
+        const detalle = limpiar(p.descripcion); // ya viene limpio de precios viejos (ver arriba)
         const cupo = cupoParaPlan(p, cat, disponibilidad);
         const lineaCupo =
           cupo === true ? "\n\n✅ Para esa fecha SÍ tengo cupo." : cupo === false ? "\n\n❌ Para esa fecha no me queda cupo — te muestro otra opción o fecha si querés." : "";

@@ -1,6 +1,7 @@
 import { Worker } from "bullmq";
 import { getRedisConnection } from "../core/queue/redis.js";
 import { QUEUE_INBOUND } from "../core/queue/inboundQueue.js";
+import { enTurnoPorConversacion } from "../core/queue/enTurno.js";
 import { handleInbound } from "../core/pipeline/runTurn.js";
 import { getChannel } from "../channels/registry.js";
 import type { InboundEvent } from "../channels/types.js";
@@ -11,11 +12,14 @@ import type { InboundEvent } from "../channels/types.js";
  * exactamente la misma función que antes se llamaba directo desde server.ts, solo que ahora
  * corre en este proceso separado (`npm run worker`), no en el que recibe el webhook.
  *
- * concurrency: 5 → hasta 5 conversaciones distintas se procesan en paralelo. Si dos mensajes
- * del MISMO cliente llegan casi al tiempo, BullMQ no garantiza el orden entre trabajos
- * distintos — no es un problema hoy (cada trabajo es independiente) pero es la razón por la
- * que agente-ycloud-main usa jobId por contacto para evitar carreras (ver nota en
- * inboundQueue.ts).
+ * concurrency: 5 → hasta 5 conversaciones distintas se procesan en paralelo.
+ *
+ * [2026-09-11] Los mensajes del MISMO cliente, en cambio, se procesan de a UNO, en fila (ver
+ * core/queue/enTurno.ts). Antes no era así y costó caro: un cliente mandó nombre, cédula y
+ * celular en tres mensajes casi simultáneos, dos se procesaron en paralelo, y terminó con DOS
+ * reservas creadas y DOS links de pago distintos por la misma estadía. El turno lee y escribe
+ * historial y base de datos, así que dos turnos de la misma conversación al tiempo es una
+ * carrera: la fila por conversación lo cierra sin frenar a los demás clientes.
  */
 export function startInboundWorker() {
   const worker = new Worker<InboundEvent>(
@@ -23,7 +27,8 @@ export function startInboundWorker() {
     async (job) => {
       const event = job.data;
       const adapter = getChannel(event.channel);
-      await handleInbound(event, adapter);
+      // La clave es la conversación: mismo canal + mismo cliente = misma fila.
+      await enTurnoPorConversacion(`${event.channel}:${event.externalId}`, () => handleInbound(event, adapter));
     },
     {
       connection: getRedisConnection(),

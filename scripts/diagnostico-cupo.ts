@@ -222,6 +222,55 @@ async function main() {
     }
   }
 
+  // ---- Pregunta 5: ¿la reserva llega a existir? (sin esto no hay link de pago) ----
+  if (url && key) {
+    console.log(`\n\n5) La cadena del pago: ¿existe la fila en \`reservas\`?\n`);
+    const supabase = createClient(url, key, { auth: { persistSession: false } });
+
+    const { count, error: errCount } = await supabase
+      .from("reservas")
+      .select("*", { count: "exact", head: true });
+    if (errCount) console.log(`   ❌ no pude contar reservas: ${errCount.message}`);
+    else console.log(`   Filas en \`reservas\`: ${count ?? 0}`);
+
+    // El mismo camino que hace enviar_datos_pago cuando no le pasan el reserva_id.
+    const { data: ultima, error: errUlt } = await supabase
+      .from("reservas")
+      .select("id, cliente_id, plan_id, fecha_reservada, numero_huespedes, valor_total, total, domo_id")
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (errUlt) {
+      console.log(`   ❌ ${errUlt.message}`);
+    } else if (!ultima) {
+      console.log(
+        `\n   🔴 No hay NINGUNA reserva. Sin esta fila, \`enviar_datos_pago\` no tiene qué cobrar y el` +
+          `\n      cliente nunca recibe el link. La causa casi siempre es la misma: \`reservas.domo_id\`` +
+          `\n      sigue siendo NOT NULL y el insert falla. Lo arregla correr en Supabase:` +
+          `\n          sql/pagos-migracion-reservas.sql` +
+          `\n      (esa migración hace \`alter table reservas alter column domo_id drop not null\`).`
+      );
+    } else {
+      const r = ultima as any;
+      console.log(
+        `\n   Última reserva: #${r.id}  cliente=${r.cliente_id}  plan=${r.plan_id}  ` +
+          `fecha=${r.fecha_reservada}  huéspedes=${r.numero_huespedes}  ` +
+          `valor=${r.valor_total ?? r.total ?? "(sin valor)"}  domo=${r.domo_id ?? "null"}`
+      );
+      if (!r.valor_total && !r.total) {
+        console.log(
+          `   ⚠️ Esa reserva no tiene valor cargado: \`enviar_datos_pago\` no puede generar el link` +
+            `\n      (necesita un total mayor que cero) y va a derivar al equipo.`
+        );
+      } else {
+        console.log(`   🟢 La cadena está completa: hay reserva con valor, el link se puede generar.`);
+      }
+    }
+
+    const { count: countPagos } = await supabase.from("pagos").select("*", { count: "exact", head: true });
+    console.log(`   Filas en \`pagos\` (links generados): ${countPagos ?? 0}`);
+  }
+
   // ---- Opcional: liberar un bloqueo fantasma ----
   const aLiberar = process.argv.find((a) => a.startsWith("--liberar-bloqueo="))?.split("=")[1];
   if (aLiberar) {

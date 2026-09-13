@@ -75,6 +75,16 @@ const historyByUser = new Map<string, any[]>();
 const MAX_HOPS = 4;
 const FALLBACK_REPLY = "Perdón, no pude procesar eso. ¿Puedes repetirlo?";
 
+/**
+ * [2026-09-11] Lo que se le dice al cliente cuando el modelo quiso mandar una cifra de dinero
+ * que NO se pudo verificar contra la base y tampoco hay un texto de la herramienta que mandar
+ * en su lugar (ver la verificación al final del turno). Preferimos hacerlo esperar un momento
+ * antes que cotizarle un precio que puede estar mal: un precio equivocado ya prometido es una
+ * discusión con el cliente y plata perdida; una demora de un minuto no es nada.
+ */
+const SIN_DATO_VERIFICADO =
+  "Dame un momento que confirmo el valor exacto con el equipo de La Julita y te escribo enseguida 🙏";
+
 // [2026-09-08] Cuántos mensajes del historial se le mandan al modelo en cada hop. Antes se le
 // mandaba TODO el historial: en una conversación larga eso sale caro, va lento, y además
 // empuja el prompt del sistema lejos del mensaje nuevo — una de las razones por las que el
@@ -260,6 +270,35 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
   let textoDeRespaldo: string | null = null;
   const valoresPermitidos = new Set<string>();
 
+  // [2026-09-11] ¿El mensaje final lo escribió el MODELO, o lo devolvió una herramienta tal cual?
+  // Solo se le revisan las cifras al modelo: el texto de una herramienta con
+  // `permitirRedaccion: false` (el link de pago, la pregunta de cómo quiere pagar) ya viene
+  // armado con datos de la base y se manda literal — revisarlo contra `valoresPermitidos` sería
+  // pedirle que se valide a sí mismo, y como esas herramientas no llenan esa lista, TODO su
+  // texto quedaría marcado como inventado. Así se rompió el flujo de pago entero al ampliar la
+  // verificación: al cliente le llegaba "dame un momento" en vez del link. Lo encontró
+  // pruebas/e2e-pago.ts antes de salir a producción.
+  let finalTextEsLiteralDeHerramienta = false;
+
+  // [2026-09-11] Si una herramienta de este hop pide encadenar con otra puntual (ver
+  // ToolResult.forzarSiguienteHerramienta — ej. registrar_datos_reserva -> enviar_datos_pago),
+  // se guarda acá y se usa como `tool_choice` del PRÓXIMO hop: el modelo deja de poder
+  // "contestar con texto" en vez de llamarla. Se consume una sola vez (null después de leerlo).
+  let forzarProximaHerramienta: string | null = null;
+
+  // [2026-09-11] Red de seguridad contra un precio "de memoria": si el modelo contesta con
+  // texto libre (sin llamar NINGUNA herramienta en ese hop) y ese texto menciona una cifra de
+  // dinero, no hay cómo confirmar que sigue siendo la de la base — pudo haberla recordado de un
+  // mensaje anterior de esta misma charla en vez de volver a preguntar. Así se descubrió: el
+  // equipo cambió el precio de un plan directo en Supabase, el cliente cambió de fecha para ese
+  // mismo plan, y el bot repitió el precio VIEJO que ya había dicho antes en la conversación —
+  // `consultar_planes` nunca se volvió a llamar ese turno, así que la verificación de más abajo
+  // (que exige que la herramienta haya corrido) no tenía nada contra qué revisar. La solución no
+  // es adivinar si la cifra sigue siendo válida: es no aceptar nunca un precio que no vino de
+  // llamar la herramienta EN ESE MISMO hop (ver más abajo, en el hop sin tool_calls).
+  let yaForzoRevalidacionDePrecio = false;
+  const tieneConsultarPlanes = agente.herramientas.some((h) => h.name === "consultar_planes");
+
   // [2026-09-08] Antes, un fallo del LLM o de una herramienta (timeout, error de red, error
   // interno) se iba SIN CAPTURAR — el trabajo en la cola terminaba fallando después de sus
   // reintentos y el cliente se quedaba sin ninguna respuesta, en silencio total (así se
@@ -268,6 +307,11 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
   // turno sigue (o cae al FALLBACK_REPLY) en vez de dejar al cliente sin respuesta.
   while (hops < MAX_HOPS && finalText === null) {
     hops++;
+
+    // Se consume ahora: si esta llamada trae otro tool_call que a su vez pida forzar otra
+    // herramienta, ese pedido es para el hop de DESPUÉS de este, no para este mismo.
+    const herramientaForzadaEsteHop = forzarProximaHerramienta;
+    forzarProximaHerramienta = null;
 
     let completion;
     try {
@@ -281,6 +325,12 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
           ...historialParaModelo(history),
         ],
         tools: await esquemasDeHerramientas(agente.herramientas),
+        // undefined = "auto" (default de siempre). Si el hop anterior pidió encadenar, se
+        // fuerza acá para que el modelo NO PUEDA responder con texto en su lugar — ver
+        // ToolResult.forzarSiguienteHerramienta.
+        ...(herramientaForzadaEsteHop
+          ? { tool_choice: { type: "function" as const, function: { name: herramientaForzadaEsteHop } } }
+          : {}),
         temperature: TEMPERATURA_AGENTE,
       });
     } catch (err) {
@@ -298,6 +348,12 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
         try {
           const handler = handlerDeHerramienta(call.function.name, agente.herramientas);
           const args = JSON.parse(call.function.arguments || "{}");
+          // [2026-09-11] Diagnóstico temporal: para investigar un precio viejo que seguía
+          // saliendo incluso DESPUÉS de forzar la llamada a consultar_planes, hace falta ver
+          // con qué argumentos la llamó el modelo (¿le pasó el `plan` y la `fecha` correctos, o
+          // llamó la herramienta "en blanco"?). Sin este log no hay forma de saberlo, porque los
+          // mensajes de "tool" no se guardan en Supabase (solo quedan en memoria del proceso).
+          console.log(`[runTurn] args de "${call.function.name}" (hop ${hops}) — ${key}: ${JSON.stringify(args)}`);
           const toolResult = await handler(args, { channel: event.channel, externalId: event.externalId });
 
           const definicion = buscarHerramienta(call.function.name, agente.herramientas);
@@ -321,9 +377,28 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
               textoDeRespaldo = toolResult.reply_to_user;
               for (const monto of montosEn(toolResult.reply_to_user)) valoresPermitidos.add(monto);
               for (const monto of montosEn(JSON.stringify(toolResult.result))) valoresPermitidos.add(monto);
+              // Qué cifras quedaron habilitadas por esta llamada: son las ÚNICAS que el modelo
+              // va a poder usar al redactar (ver la verificación al final del turno).
+              console.log(
+                `[runTurn] "${call.function.name}" (redacción libre, hop ${hops}) — ${key}: ` +
+                  `montos_permitidos=${JSON.stringify([...valoresPermitidos])}`
+              );
             } else {
+              // Texto literal de la herramienta: se manda tal cual y no pasa por la verificación
+              // de cifras (ver finalTextEsLiteralDeHerramienta, más arriba). Sus montos sí se
+              // suman a los permitidos, por si un hop posterior los vuelve a mencionar.
               finalText = toolResult.reply_to_user;
+              finalTextEsLiteralDeHerramienta = true;
+              for (const monto of montosEn(toolResult.reply_to_user)) valoresPermitidos.add(monto);
             }
+          }
+
+          if (toolResult.forzarSiguienteHerramienta) {
+            console.log(
+              `[runTurn] "${call.function.name}" pide encadenar con "${toolResult.forzarSiguienteHerramienta}" ` +
+                `en el próximo hop — ${key}`
+            );
+            forzarProximaHerramienta = toolResult.forzarSiguienteHerramienta;
           }
         } catch (err) {
           // No dejamos que un error de la herramienta (ej. Supabase caído, un handler que
@@ -342,9 +417,28 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
       if (!content.trim()) {
         console.warn("LLM devolvió content vacío", { hops, key });
       }
-      // Solo asignamos si hay contenido real; si viene vacío, dejamos finalText en null
-      // para no cortar el ciclo con un string vacío (eso rompía el envío a YCloud).
-      finalText = content.trim().length > 0 ? content : null;
+
+      const mencionaPlata = content.trim().length > 0 && montosEn(content).length > 0;
+
+      if (mencionaPlata && tieneConsultarPlanes && !yaForzoRevalidacionDePrecio) {
+        // Ver el comentario de yaForzoRevalidacionDePrecio más arriba: se descarta esta
+        // respuesta entera (no se guarda en el historial ni se manda) y se fuerza consultar_planes
+        // en el próximo hop, para que la cifra que diga después quede anclada a la base y pase
+        // por la verificación de abajo. Solo se fuerza UNA vez por turno, para no encadenar hops
+        // de más si el modelo insiste en contestar sin apoyarse en la herramienta.
+        console.warn(
+          `[runTurn] Texto libre con cifras de dinero sin llamar ninguna herramienta este hop — ` +
+            `${key}: lo descarto y fuerzo "consultar_planes" para confirmar el precio actual.`
+        );
+        yaForzoRevalidacionDePrecio = true;
+        forzarProximaHerramienta = "consultar_planes";
+        // No seteamos finalText: el while sigue (si quedan hops) con tool_choice forzado.
+      } else {
+        // Solo asignamos si hay contenido real; si viene vacío, dejamos finalText en null
+        // para no cortar el ciclo con un string vacío (eso rompía el envío a YCloud).
+        finalText = content.trim().length > 0 ? content : null;
+        finalTextEsLiteralDeHerramienta = false; // esto lo escribió el modelo: hay que revisarlo
+      }
     }
   }
 
@@ -352,17 +446,37 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
   // hubo) y, en última instancia, el mensaje de respaldo.
   let reply = finalText && finalText.trim().length > 0 ? finalText : (textoDeRespaldo ?? FALLBACK_REPLY);
 
+  // Traza corta de la verificación: qué cifras trae el mensaje que el modelo quiere mandar y
+  // cuáles están habilitadas. Si algo sale mal en producción, con esta línea sola se entiende.
+  if (finalText && !finalTextEsLiteralDeHerramienta && montosEn(finalText).length > 0) {
+    console.log(
+      `[runTurn] verificación de cifras — ${key}: en_el_mensaje=${JSON.stringify(montosEn(finalText))} | ` +
+        `permitidas=${JSON.stringify([...valoresPermitidos])}`
+    );
+  }
+
   // Verificación de la redacción libre: toda cifra de dinero del mensaje tiene que venir de la
   // base. Si el modelo se inventó un valor (o redondeó uno), se manda el texto exacto de la
   // herramienta en vez de su redacción.
-  if (finalText && textoDeRespaldo && valoresPermitidos.size > 0) {
+  //
+  // [2026-09-11] Antes esta verificación SOLO corría si además había `textoDeRespaldo` y la
+  // lista de valores permitidos no estaba vacía. Ese "y" era un agujero: si la herramienta no
+  // llegaba a devolver datos (Supabase caído, la consulta vuelve vacía, la herramienta falla),
+  // `valoresPermitidos` quedaba vacío, la verificación no corría, y el modelo podía mandarle al
+  // cliente CUALQUIER cifra — justamente en el momento en que menos se le puede creer, porque
+  // no tiene ningún dato fresco con qué contrastar. Se descubrió corriendo esta misma prueba
+  // con la base devolviendo vacío: el bot le mandaba al cliente el precio viejo sin que nada
+  // lo frenara. Ahora la regla es simple y sin excepciones: si el mensaje menciona plata, cada
+  // cifra tiene que estar en lo que devolvió una herramienta en ESTE turno; si no hay con qué
+  // verificarla, no sale.
+  if (finalText && !finalTextEsLiteralDeHerramienta) {
     const inventados = montosEn(finalText).filter((monto) => !valoresPermitidos.has(monto));
     if (inventados.length > 0) {
       console.error(
         `[runTurn] La redacción del modelo traía cifras que NO salieron de la base (${inventados.join(", ")}) — ${key}: ` +
-          "mando el texto exacto de la herramienta."
+          (textoDeRespaldo ? "mando el texto exacto de la herramienta." : "no hay dato verificado, mando el mensaje de respaldo.")
       );
-      reply = textoDeRespaldo;
+      reply = textoDeRespaldo ?? SIN_DATO_VERIFICADO;
     }
   }
 

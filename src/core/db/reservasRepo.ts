@@ -172,9 +172,25 @@ async function insertarAcompanantes(
     };
     if (reservaId != null) fila.reserva_id = reservaId;
 
-    const { error } = await supabase.from("acompanantes").insert(fila);
+    let { error } = await supabase.from("acompanantes").insert(fila);
+
+    // [2026-09-11] La tabla puede o no tener la columna `reserva_id` (el equipo la borró el
+    // 2026-09-08 y la migración sql/acompanantes-reserva-id.sql la devuelve). Si no la tiene,
+    // Postgres responde 42703 (undefined_column) y ANTES eso hacía fallar a TODOS los
+    // acompañantes en cuanto el bot empezaba a crear reservas — el cliente daba los documentos
+    // y no quedaba ninguno guardado. Ahora se reintenta sin el vínculo: es mejor guardar al
+    // acompañante suelto (el equipo lo vincula después) que perderlo.
+    if (error && reservaId != null && (error.code === "42703" || /reserva_id/i.test(error.message ?? ""))) {
+      console.warn(
+        "[reservasRepo] `acompanantes` no tiene la columna reserva_id — guardo al acompañante sin " +
+          "vincularlo a la reserva. Corré sql/acompanantes-reserva-id.sql para recuperar el vínculo."
+      );
+      delete fila.reserva_id;
+      ({ error } = await supabase.from("acompanantes").insert(fila));
+    }
+
     if (error) {
-      if (error.code === "23502" || /reserva_id/i.test(error.message ?? "")) exigeReserva = true;
+      if (error.code === "23502") exigeReserva = true;
       console.error(
         `[reservasRepo] Acompañante "${acompanante.nombre}" (del cliente #${clienteId}):`,
         error.message

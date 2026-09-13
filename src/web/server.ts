@@ -6,6 +6,15 @@ import { parseYcloudWebhook, whatsappYcloudAdapter } from "../channels/whatsapp-
 import { registerChannel } from "../channels/registry.js";
 import { enqueueInbound } from "../core/queue/inboundQueue.js";
 import { adminApiRouter } from "./admin/routes.js";
+import {
+  verificarFirmaBold,
+  extraerReferenceDelEvento,
+  type BoldWebhookEvent,
+} from "../core/integrations/boldClient.js";
+import { registrarPagoAprobado } from "../core/db/pagosRepo.js";
+import { bloqueoIdDeReserva } from "../core/db/bloqueosRepo.js";
+import { avisarPagoConfirmado } from "../core/pipeline/avisarPago.js";
+import { cancelarSeguimientoDePago } from "../core/queue/bloqueoQueue.js";
 
 registerChannel(whatsappYcloudAdapter);
 
@@ -53,6 +62,105 @@ export function createApp() {
       enqueueInbound(event).catch((err) => {
         console.error("Error encolando mensaje de WhatsApp:", err);
       });
+    }
+  });
+
+  // --- Webhook de Bold (confirma que el pago SI entro) --------------------------------------
+  // [2026-09-11] Adaptado del bot base (agente-ycloud-main / "Sebas Raider"), mismo endpoint y
+  // misma logica de verificacion — ver boldClient.ts para el detalle de la firma. La diferencia
+  // es de monto: alla el link era de valor fijo por plan, aca es variable (calculado por
+  // fn_total_reserva/fn_saldo_reserva) asi que el que confirma el pago (fn_registrar_pago_aprobado)
+  // tambien actualiza el saldo real de la reserva, no solo un estado "pagado" binario.
+
+  // Bold (o algo entre Bold y nosotros) puede hacer un chequeo GET/HEAD antes de mandar eventos
+  // POST reales — visto asi en el bot base, sin esto el endpoint respondia 404 y podia hacer que
+  // Bold no confiara en la URL configurada.
+  app.get("/webhooks/bold", (_req: Request, res: Response) => res.status(200).json({ ok: true }));
+  app.head("/webhooks/bold", (_req: Request, res: Response) => res.status(200).end());
+
+  app.post("/webhooks/bold", async (req: Request, res: Response) => {
+    const rawBody = (req as Request & { rawBody?: Buffer }).rawBody ?? Buffer.alloc(0);
+    const firma = req.headers["x-bold-signature"];
+    const header = Array.isArray(firma) ? firma[0] : firma;
+
+    const verificacion = verificarFirmaBold(header, rawBody);
+    if (!verificacion.ok) {
+      console.warn("[webhook bold] firma rechazada:", verificacion.razon);
+      res.status(401).json({ ok: false, error: verificacion.razon });
+      return;
+    }
+    // Deja registro de CUAL llave firmo (la doc de Bold es ambigua entre 2-3 candidatas) — el
+    // primer webhook real en produccion resuelve la duda mirando esto en los logs.
+    console.log("[webhook bold] firma ok, coincidio con:", verificacion.fuente);
+
+    const payload = req.body as BoldWebhookEvent;
+
+    // Solo nos interesa la venta aprobada. Los demas eventos (rechazos, anulaciones) se
+    // reconocen con 200 para que Bold no siga reintentando, pero no tocan la base.
+    if (payload?.type !== "SALE_APPROVED") {
+      res.json({ ok: true, saltado: payload?.type ?? "sin_tipo" });
+      return;
+    }
+
+    const referencia = extraerReferenceDelEvento(payload.data);
+    const boldPaymentId = payload.data?.payment_id;
+    const valor = payload.data?.amount?.total ?? null;
+
+    if (!referencia || !boldPaymentId) {
+      console.error("[webhook bold] SALE_APPROVED sin reference/payment_id — payload completo:", JSON.stringify(payload));
+      res.json({ ok: true, saltado: "faltan_campos" });
+      return;
+    }
+
+    try {
+      const resultado = await registrarPagoAprobado({ referencia, boldPaymentId, valor });
+
+      if (resultado.referenciaDesconocida) {
+        console.warn("[webhook bold] SALE_APPROVED con una reference que no reconocemos:", referencia);
+        res.json({ ok: true, saltado: "reference_desconocida" });
+        return;
+      }
+      if (!resultado.ok) {
+        console.error("[webhook bold] no se pudo registrar el pago:", referencia, resultado.motivo);
+        res.status(500).json({ ok: false });
+        return;
+      }
+
+      console.log(
+        `[webhook bold] pago ${resultado.yaProcesado ? "ya estaba" : "quedo"} registrado — ` +
+          `reserva #${resultado.reservaId}, estado_pago ${resultado.estadoPago}, saldo ${resultado.saldoPendiente}`
+      );
+      // Bold exige responder en menos de 2s — un solo RPC a Supabase entra sobrado ahi, por eso
+      // se espera el resultado antes de responder (a diferencia del webhook de WhatsApp, que
+      // encola y responde antes de procesar): asi, si la escritura falla, Bold reintenta.
+      res.json({ ok: true });
+
+      // [2026-09-11] Recien AHORA (ya respondido) se le avisa al cliente por WhatsApp que su
+      // pago entro, para que no tenga que mandar el comprobante. Va despues del res.json() a
+      // proposito: mandar un mensaje por YCloud es una llamada HTTP mas y no cabe dentro de los
+      // 2 segundos que Bold da para contestar — si nos pasamos, Bold da el webhook por fallido
+      // y lo reintenta, y el cliente terminaria recibiendo el aviso varias veces.
+      //
+      // `yaProcesado` es la guarda de idempotencia: Bold puede mandar la misma notificacion mas
+      // de una vez (su doc lo advierte) y el aviso tiene que salir UNA sola vez.
+      if (!resultado.yaProcesado && resultado.reservaId != null) {
+        void avisarPagoConfirmado({
+          reservaId: resultado.reservaId,
+          totalPagado: resultado.totalPagado,
+          saldoPendiente: resultado.saldoPendiente,
+          estadoPago: resultado.estadoPago,
+        }).catch((err) => console.error("[webhook bold] fallo el aviso al cliente (el pago SI quedo registrado):", err));
+
+        // [2026-09-13] El webhook ya confirmo el pago: los chequeos internos que quedaran
+        // pendientes (los de paso a los 3/7 min, y el ultimo antes de liberar) ya no tienen nada
+        // que hacer — cancelarlos evita seguir consultando a Bold algo que ya sabemos.
+        void bloqueoIdDeReserva(resultado.reservaId)
+          .then((bloqueoId) => (bloqueoId ? cancelarSeguimientoDePago(bloqueoId) : undefined))
+          .catch((err) => console.error("[webhook bold] no pude cancelar el seguimiento pendiente del bloqueo:", err));
+      }
+    } catch (err) {
+      console.error("[webhook bold] error inesperado:", err);
+      res.status(500).json({ ok: false });
     }
   });
 

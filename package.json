@@ -8,7 +8,15 @@
     "chat:local": "tsx scripts/chat-local.ts",
     "web": "tsx src/web/start.ts",
     "worker": "tsx src/worker/start.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prueba:precio": "tsx pruebas/e2e-precio.ts",
+    "prueba:pago": "tsx pruebas/e2e-pago.ts",
+    "prueba:concurrencia": "tsx pruebas/e2e-concurrencia.ts",
+    "prueba:aviso": "tsx pruebas/e2e-aviso-pago.ts",
+    "prueba:verificar": "tsx pruebas/e2e-verificar-pago.ts",
+    "prueba:cupo": "tsx pruebas/e2e-liberacion-cupo.ts",
+    "prueba:chequeo-temprano": "tsx pruebas/e2e-chequeo-temprano.ts",
+    "prueba:reserva-real": "tsx pruebas/prueba-reserva-real-lobby.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",

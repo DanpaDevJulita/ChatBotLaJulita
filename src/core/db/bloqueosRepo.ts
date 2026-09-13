@@ -1,4 +1,5 @@
 import { supabase, supabaseConfigured } from "./supabase.js";
+import { conversacionDeReserva } from "./pagosRepo.js";
 
 /**
  * Bloqueo temporal interno del bot (ver sql/bloqueos-temporales.sql) — cuando un cliente ya
@@ -198,6 +199,24 @@ export async function liberarBloqueoSiVencido(id: number): Promise<Bloqueo | nul
   return data as Bloqueo;
 }
 
+/**
+ * [2026-09-13] El camino INVERSO: de una reserva, a su bloqueo pendiente (si todavía tiene uno).
+ *
+ * Para qué: cuando el pago se confirma por un camino que solo conoce el `reserva_id` (el webhook
+ * de Bold, o el cliente diciendo "ya pagué"), hay que poder cancelar los chequeos tempranos y la
+ * liberación automática de ESE bloqueo — si no, el bot le sigue preguntando a Bold por un pago
+ * que ya sabe que entró.
+ *
+ * Reusa `conversacionDeReserva` (reserva -> cliente -> celular) y `bloqueoPendienteDe` (celular
+ * -> bloqueo), los dos ya existentes — no hay una columna `reserva_id` en `bloqueos_temporales`.
+ */
+export async function bloqueoIdDeReserva(reservaId: number): Promise<number | null> {
+  const destino = await conversacionDeReserva(reservaId);
+  if (!destino) return null;
+  const bloqueo = await bloqueoPendienteDe(destino.canal, destino.externalId);
+  return bloqueo?.id ?? null;
+}
+
 /** El bloqueo pendiente más reciente de una conversación (para /confirmar por número, o debug). */
 export async function bloqueoPendienteDe(canal: string, externalId: string): Promise<Bloqueo | null> {
   if (!supabaseConfigured) return null;
@@ -222,6 +241,51 @@ export async function bloqueoPendienteDe(canal: string, externalId: string): Pro
  * [2026-09-10] Guarda el booking_id/room_id reales de LobbyPMS una vez creada la reserva desde
  * /confirmar (ver src/core/pipeline/reservaLobby.ts). Es solo trazabilidad — no cambia `estado`.
  */
+/**
+ * [2026-09-11] Guarda el bloqueo REAL de LobbyPMS sobre un bloqueo que ya existe.
+ *
+ * Hace falta cuando el cupo se había soltado (pago tardío) y se vuelve a tomar: el bloqueo de
+ * nuestra base es el mismo, pero el candado en LobbyPMS es nuevo y hay que dejar guardado su id,
+ * porque es lo que después permite liberarlo o convertirlo en reserva.
+ */
+export async function guardarBlockLobby(id: number, blockId: number, categoryId: number | null): Promise<boolean> {
+  if (!supabaseConfigured) return false;
+  const { error } = await supabase
+    .from("bloqueos_temporales")
+    .update({ lobby_block_id: blockId, lobby_category_id: categoryId })
+    .eq("id", id);
+  if (error) {
+    console.error("[bloqueosRepo] guardarBlockLobby:", error.message);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * [2026-09-11] Guarda el bloqueo real recién vuelto a tomar en LobbyPMS y deja el bloqueo en
+ * "confirmado" — sin importar en qué `estado` estuviera antes.
+ *
+ * Por qué NO se puede usar `confirmarBloqueo` acá: esa función solo pisa un bloqueo que sigue
+ * "pendiente" (a propósito, para no confirmar por accidente algo que ya se liberó o venció).
+ * Pero acá el caso es justo al revés: el bloqueo YA estaba "liberado" (el pago llegó tarde, se
+ * venció, o quedó así de un intento anterior del mismo job) y lo que se está guardando es la
+ * prueba de que se acaba de comprobar disponibilidad y se volvió a tomar el cupo DE VERDAD en
+ * LobbyPMS hace un instante — no hay nada de qué protegerse, así que el "liberado" viejo no
+ * puede dejarlo trabado ahí para siempre.
+ */
+export async function reactivarBloqueo(id: number, blockId: number, categoryId: number | null): Promise<boolean> {
+  if (!supabaseConfigured) return false;
+  const { error } = await supabase
+    .from("bloqueos_temporales")
+    .update({ lobby_block_id: blockId, lobby_category_id: categoryId, estado: "confirmado" })
+    .eq("id", id);
+  if (error) {
+    console.error("[bloqueosRepo] reactivarBloqueo:", error.message);
+    return false;
+  }
+  return true;
+}
+
 export async function guardarReservaLobby(id: number, bookingId: number, roomId: number | null): Promise<boolean> {
   if (!supabaseConfigured) return false;
   const { error } = await supabase

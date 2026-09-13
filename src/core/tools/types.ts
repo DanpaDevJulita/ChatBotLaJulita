@@ -13,6 +13,20 @@ export interface ToolContext {
 export interface ToolResult {
   result: unknown;
   reply_to_user?: string;
+  /**
+   * [2026-09-11] Nombre de OTRA herramienta que el modelo tiene que llamar en el hop
+   * SIGUIENTE, sin escribirle nada al cliente en el medio (ej.: registrar_datos_reserva ->
+   * enviar_datos_pago, para que el link salga en el mismo turno).
+   *
+   * Por qué existe: antes esto se pedía solo por texto (la `description` de la herramienta y
+   * un campo `siguiente_paso` en el `result`), y en la práctica el modelo a veces igual
+   * respondía con texto plano en vez de encadenar — el cliente se quedaba sin el link aunque
+   * la reserva sí se hubiera creado. Con este campo, runTurn.ts fuerza el `tool_choice` del
+   * próximo hop a esa herramienta puntual: el modelo YA NO PUEDE elegir responder con texto,
+   * tiene que llamarla sí o sí. Se consume una sola vez (aplica solo al hop inmediatamente
+   * siguiente), así que una herramienta solo debe ponerlo cuando de verdad haga falta encadenar.
+   */
+  forzarSiguienteHerramienta?: string;
 }
 
 export interface ToolDefinition {
