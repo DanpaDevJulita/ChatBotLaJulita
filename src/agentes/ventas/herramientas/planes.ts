@@ -50,9 +50,16 @@ function limpiar(texto: string | null | undefined): string {
  */
 function precioPorPalabrasDeLaLinea(linea: string, p: Plan): number | null {
   const s = linea.toLowerCase();
-  if (/puente/.test(s)) return p.precio_fin_de_semana_puente || null;
+  // [2026-09-14] "festivo" cuenta igual que "puente", y va PRIMERO. Se descubrió al revisar las
+  // descripciones reales antes de migrarlas a `$$$$`: el PLAN UNA PERSONA (id 28) tiene la línea
+  // "Fin de semana festivo (viernes, sábado o domingo) domo clásico chalet: $779.000" — el valor
+  // es el de PUENTE, pero como la línea también dice "fin de semana", sin esto se le habría
+  // puesto el precio de fin de semana normal ($679.000). Un precio equivocado, en el mensaje que
+  // lee el cliente. Por eso el orden importa: lo más específico (puente/festivo) primero.
+  if (/puente|festivo/.test(s)) return p.precio_fin_de_semana_puente || null;
   if (/fin de semana|s[aá]bado|domingo|finde/.test(s)) return p.precio_fin_de_semana || null;
-  if (/entre semana|lunes a viernes|entresemana/.test(s)) return p.precio_entre_semana || null;
+  // "lunes a jueves" aparece en varias descripciones reales (no solo "lunes a viernes").
+  if (/entre semana|lunes a viernes|lunes a jueves|entresemana/.test(s)) return p.precio_entre_semana || null;
   return null;
 }
 
