@@ -1,6 +1,7 @@
 import { getChannel } from "../../channels/registry.js";
 import { insertMensaje } from "../db/mensajesRepo.js";
 import { conversacionDeReserva, obtenerEstadoCuenta, resumenDeReserva } from "../db/pagosRepo.js";
+import { politica } from "../db/politicasRepo.js";
 import { cancelarRecontacto } from "../queue/recontactoQueue.js";
 import { enviarSeguro } from "./enviar.js";
 import { registrarMensajeDelBot } from "./runTurn.js";
@@ -75,6 +76,12 @@ export function textoDeConfirmacion(params: {
   pagado: number;
   saldo: number;
   cupoAsegurado?: boolean;
+  /**
+   * [2026-09-13] El texto oficial de cuándo se paga el 50% restante, ya leído de la tabla
+   * `politicas` por quien llama (esta función se mantiene sincrónica a propósito, para poder
+   * probarla sin base). Si viene null, el mensaje simplemente no lo menciona.
+   */
+  politicaSaldo?: string | null;
 }): string {
   const quePlan = params.plan ? ` del ${params.plan}` : "";
   const cuando = params.fecha ? ` para el ${params.fecha}` : "";
@@ -96,7 +103,9 @@ export function textoDeConfirmacion(params: {
 
   const cuerpo = quedaSaldo
     ? `Ya nos entró tu abono de ${formatMoney(params.pagado)} y tu reserva${quePlan}${cuando} queda apartada ✅\n\n` +
-      `Queda un saldo de ${formatMoney(params.saldo)}, que se paga según las condiciones del plan — te lo recuerdo más cerca de la fecha.`
+      `Queda un saldo de ${formatMoney(params.saldo)}.` +
+      (params.politicaSaldo ? `\n${params.politicaSaldo}` : "") +
+      "\nTe lo recuerdo más cerca de la fecha 😊"
     : `Ya nos entró tu pago de ${formatMoney(params.pagado)} y tu reserva${quePlan}${cuando} queda confirmada ✅\n\n` +
       "No queda saldo pendiente 🙌";
 
@@ -136,6 +145,9 @@ export async function avisarPagoConfirmado(datos: DatosDelPago): Promise<void> {
     pagado,
     saldo,
     cupoAsegurado: datos.cupoAsegurado,
+    // El texto oficial de cuándo se paga el saldo (tabla `politicas`). Solo hace falta si queda
+    // saldo; si la base no lo tiene cargado, el mensaje sale igual, sin esa línea.
+    politicaSaldo: saldo > 0 ? await politica("saldo_pendiente") : null,
   });
 
   let adapter;

@@ -30,15 +30,56 @@ function limpiar(texto: string | null | undefined): string {
  * la descripción seguía con el valor anterior, y el mensaje final citaba ESE. Una revisión
  * encontró el mismo problema en otros 4 planes (ids 3, 28, 31, 32).
  *
- * En vez de pedirle al equipo que mantenga sincronizados dos lugares distintos (columna Y texto
- * libre) cada vez que cambie un precio, se quita de raíz: cualquier línea de la descripción que
- * parezca un precio ("$" seguido de números) se descarta antes de mostrarla. El único precio que
- * el cliente ve sale SIEMPRE de las columnas — nunca de texto libre.
+ * [2026-09-11 → 2026-09-13] La primera versión de este arreglo borraba de raíz cualquier línea
+ * que pareciera traer un precio ("$" seguido de números) — funcionaba (nunca más viajó un precio
+ * viejo), pero se notaba: esa línea solía traer también el emoji y la palabra que la acompañaban
+ * ("💰 Entre semana (lunes a viernes): $590.000"), así que el mensaje quedaba con un hueco feo,
+ * poco agradable a la vista (lo notó Daniel en pruebas reales).
+ *
+ * Ahora, en vez de borrar la línea, se REEMPLAZA solo el precio: el equipo edita la descripción
+ * en el panel y en el lugar exacto donde iba el número pone el texto literal `$$$$` (ej. "💰
+ * Entre semana (lunes a viernes): $$$$"). Acá se busca ese token y se cambia por el precio de
+ * verdad (columna), eligiendo CUÁL de los tres precios según lo que ya dice esa misma línea
+ * ("entre semana", "fin de semana", "puente") — así una sola descripción puede traer los tres
+ * tokens, uno por línea, cada uno resuelto con su propio precio. El emoji y el resto del texto de
+ * la línea quedan intactos.
+ *
+ * Sigue existiendo, como red de seguridad, el borrado de líneas con un precio escrito A MANO
+ * (planes que el equipo todavía no migró a `$$$$`) — para que nunca se cuele un precio viejo
+ * mientras se termina de editar el resto de las plantillas.
  */
-function quitarLineasDePrecio(texto: string): string {
+function precioPorPalabrasDeLaLinea(linea: string, p: Plan): number | null {
+  const s = linea.toLowerCase();
+  if (/puente/.test(s)) return p.precio_fin_de_semana_puente || null;
+  if (/fin de semana|s[aá]bado|domingo|finde/.test(s)) return p.precio_fin_de_semana || null;
+  if (/entre semana|lunes a viernes|entresemana/.test(s)) return p.precio_entre_semana || null;
+  return null;
+}
+
+function resolverPreciosEnDescripcion(texto: string, p: Plan): string {
   return texto
     .split("\n")
-    .filter((linea) => !/\$\s?\d/.test(linea))
+    .map((linea) => {
+      if (linea.includes("$$$$")) {
+        // [2026-09-13] A propósito SIN caer a `precioReferencia` (el más barato de los tres):
+        // mostrar un precio "adivinado" en una línea que no dice a cuál tarifa corresponde es
+        // peor que no mostrar nada — el cliente vería un precio real pero pegado a la frase
+        // equivocada, más engañoso que la línea vacía que reemplaza.
+        const precio = precioPorPalabrasDeLaLinea(linea, p);
+        if (precio == null) {
+          console.warn(
+            `[planes] plan "${p.nombre}" (id ${p.id}): la descripción trae un $$$$ que no se pudo ` +
+              "resolver a ningún precio cargado — se quita la línea para no mostrarle nada raro al cliente."
+          );
+          return null;
+        }
+        return linea.replace(/\$\$\$\$/g, formatMoney(precio));
+      }
+      // Red de seguridad: precio viejo escrito a mano, todavía sin migrar a $$$$.
+      if (/\$\s?\d/.test(linea)) return null;
+      return linea;
+    })
+    .filter((linea): linea is string => linea != null)
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -503,13 +544,13 @@ export const consultarPlanesTool: ToolDefinition = {
   name: "consultar_planes",
   permitirRedaccion: true,
   description:
-    "Planes, precios y CUPO REAL de La Julita. Pasale SIEMPRE el `segmento` (pareja, familia, amigas, solo o pasadia) en cuanto lo sepas, y la `fecha` si la tenés. Sin `nivel` devuelve el MENÚ DE TRES EXPERIENCIAS (planes por noche / intermedios / todo incluido) con su precio 'desde' — es lo primero que se le muestra al cliente. Cuando el cliente elige una, llamala otra vez con `nivel` y devuelve hasta 3 planes concretos de ese nivel, YA con el cupo real de esa fecha (consulta el motor de reservas en línea). Con `plan` devuelve el detalle completo de uno, también con el cupo si hay `fecha`. Pasale siempre `personas` y, si la sabés, `fecha` (así cotiza un solo precio, el de ese día, Y te dice si hay cupo). Los precios y lo que incluye cada plan salen SIEMPRE de acá, nunca de tu memoria — y lo mismo la disponibilidad: si la respuesta no trae un dato de cupo explícito, no inventes uno.",
+    "Planes, precios y CUPO REAL de La Julita. Pásale SIEMPRE el `segmento` (pareja, familia, amigas, solo o pasadia) en cuanto lo sepas, y la `fecha` si la tienes. Sin `nivel` devuelve el MENÚ DE TRES EXPERIENCIAS (planes por noche / intermedios / todo incluido) con su precio 'desde' — es lo primero que se le muestra al cliente. Cuando el cliente elige una, llámala otra vez con `nivel` y devuelve hasta 3 planes concretos de ese nivel, YA con el cupo real de esa fecha (consulta el motor de reservas en línea). Con `plan` devuelve el detalle completo de uno, también con el cupo si hay `fecha`. Pásale siempre `personas` y, si la sabes, `fecha` (así cotiza un solo precio, el de ese día, Y te dice si hay cupo). Los precios y lo que incluye cada plan salen SIEMPRE de acá, nunca de tu memoria — y lo mismo la disponibilidad: si la respuesta no trae un dato de cupo explícito, no inventes uno.",
   parameters: {
     type: "object",
     properties: {
       personas: {
         type: "integer",
-        description: "Para cuántas personas es. Preguntáselo al cliente antes de mostrar planes si no lo sabés.",
+        description: "Para cuántas personas es. Pregúntaselo al cliente antes de mostrar planes si no lo sabes.",
       },
       ocasion: {
         type: "string",
@@ -536,7 +577,7 @@ export const consultarPlanesTool: ToolDefinition = {
         type: "string",
         enum: ["por_noche", "intermedio", "todo_incluido"],
         description:
-          "La experiencia que eligió el cliente del menú: 'por_noche' (noche, jacuzzi y desayuno), 'intermedio' (agrega cena y decoración) o 'todo_incluido' (agrega spa, coctelería, servicio a la habitación). Omitilo para mostrar el menú de las tres.",
+          "La experiencia que eligió el cliente del menú: 'por_noche' (noche, jacuzzi y desayuno), 'intermedio' (agrega cena y decoración) o 'todo_incluido' (agrega spa, coctelería, servicio a la habitación). Omítelo para mostrar el menú de las tres.",
       },
       tipo: {
         type: "string",
@@ -584,7 +625,7 @@ export const consultarPlanesTool: ToolDefinition = {
     // devuelve la herramienta, no solo el texto) y el modelo lo repitiera igual. Limpiando acá,
     // en el único lugar donde se leen los planes, ninguna rama de abajo puede filtrar el precio
     // viejo por ningún camino.
-    const planes = planesCrudos.map((p) => ({ ...p, descripcion: quitarLineasDePrecio(limpiar(p.descripcion)) }));
+    const planes = planesCrudos.map((p) => ({ ...p, descripcion: resolverPreciosEnDescripcion(limpiar(p.descripcion), p) }));
     const cat = await cargarCatalogoDomos();
     const tarifa = args?.fecha ? tarifaDeFecha(args.fecha, args.festivo) : null;
 
@@ -626,8 +667,17 @@ export const consultarPlanesTool: ToolDefinition = {
         const detalle = limpiar(p.descripcion); // ya viene limpio de precios viejos (ver arriba)
         const cupo = cupoParaPlan(p, cat, disponibilidad);
         const lineaCupo =
-          cupo === true ? "\n\n✅ Para esa fecha SÍ tengo cupo." : cupo === false ? "\n\n❌ Para esa fecha no me queda cupo — te muestro otra opción o fecha si querés." : "";
-        const texto = `${limpiar(p.nombre)}${personas}\n${lineaPrecio}${detalle ? `\n\n${detalle}` : ""}${lineaCupo}`;
+          cupo === true ? "\n\n✅ Para esa fecha SÍ tengo cupo." : cupo === false ? "\n\n❌ Para esa fecha no me queda cupo — te muestro otra opción o fecha si quieres." : "";
+        // [2026-09-14] Este texto no es solo la "base" para que el modelo redacte: es lo que se
+        // le manda TAL CUAL al cliente si la redacción del modelo se descarta por la
+        // verificación de cifras (ver runTurn.ts). Daniel lo vio en vivo — le llegó el plan
+        // entero en texto pelado, sin una negrita ni un emoji, y con razón le pareció feo. Por
+        // eso ahora el texto de respaldo ya sale presentable por su cuenta: nombre en negrita
+        // (un solo asterisco, que es como WhatsApp la muestra) y el precio con su emoji. El
+        // cuerpo de la descripción sigue saliendo tal como está cargado en el panel.
+        const texto =
+          `*${limpiar(p.nombre)}*${personas}\n💰 ${lineaPrecio}` +
+          `${detalle ? `\n\n${detalle}` : ""}${lineaCupo}`;
         return { result: { ...p, cupo: cupo ?? null }, reply_to_user: texto };
       }
 
@@ -635,7 +685,7 @@ export const consultarPlanesTool: ToolDefinition = {
         const texto =
           `Tengo varios que coinciden con "${limpiar(args?.plan)}":\n` +
           coincidencias.map((p) => `• ${limpiar(p.nombre)}: ${preciosDe(p)}`).join("\n") +
-          "\n\n¿Cuál de esos querés que te detalle?";
+          "\n\n¿Cuál de esos quieres que te detalle?";
         return { result: coincidencias, reply_to_user: texto };
       }
     }
@@ -685,7 +735,7 @@ export const consultarPlanesTool: ToolDefinition = {
       });
       const caben = [...justos, ...sinDato, ...masGrandes];
       if (caben.length > 0) candidatos = caben;
-      else nota = `No tengo un plan armado para ${personas} personas, pero mirá estos:\n`;
+      else nota = `No tengo un plan armado para ${personas} personas, pero mira estos:\n`;
     }
 
     // Si la fecha marca una tarifa, dejamos solo los planes que se pueden vender ese día
@@ -705,7 +755,7 @@ export const consultarPlanesTool: ToolDefinition = {
         return {
           result: { pagina, total_que_aplican: ordenados.length, quedan: 0 },
           reply_to_user:
-            "Ya te mostré todas las opciones que tengo para eso. ¿Querés que te cuente qué incluye alguno de los que viste?",
+            "Ya te mostré todas las opciones que tengo para eso. ¿Quieres que te cuente qué incluye alguno de los que viste?",
         };
       }
       const quedan = ordenados.length - (desde + tanda.length);
@@ -854,7 +904,7 @@ export const consultarPlanesTool: ToolDefinition = {
         const puente = precioPara(x.plan, "fin_de_semana_puente");
         return puente != null && puente !== precioPara(x.plan, "fin_de_semana");
       })
-        ? "\nOjo: si ese fin de semana cae puente festivo, la tarifa cambia — decime la fecha exacta y te confirmo."
+        ? "\nOjo: si ese fin de semana cae puente festivo, la tarifa cambia — dime la fecha exacta y te confirmo."
         : "";
 
     const encabezado =
@@ -904,7 +954,7 @@ export const consultarAdicionalesTool: ToolDefinition = {
         const precio = a.precio ? formatMoney(a.precio) : "precio a confirmar con el equipo";
         return `• ${etiqueta}: ${precio}`;
       })
-      .join("\n") + "\n\nLos valores son sin IVA. ¿Querés que le sume alguno a tu reserva?";
+      .join("\n") + "\n\nLos valores son sin IVA. ¿Quieres que le sume alguno a tu reserva?";
     return { result: adicionales, reply_to_user: texto };
   },
 };

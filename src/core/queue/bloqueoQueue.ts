@@ -108,15 +108,44 @@ export async function cancelarLiberacion(bloqueoId: number): Promise<void> {
   }
 }
 
-/** Cancela los chequeos tempranos que todavía no se hayan disparado. Best-effort: si alguno ya
- * está corriendo (o ya se disparó), simplemente no hay nada que cancelar ahí. */
-export async function cancelarChequeosTempranos(bloqueoId: number): Promise<void> {
+/**
+ * Cancela los chequeos tempranos que todavía no se hayan disparado. Best-effort: si alguno ya
+ * está corriendo (o ya se disparó), simplemente no hay nada que cancelar ahí.
+ *
+ * [2026-09-13] `exceptoMinuto` existe por un ruido real en los logs de Daniel:
+ *
+ *     [bloqueo] No pude cancelar el chequeo temprano de los 7 min del bloqueo #13:
+ *     Job bloqueo-13-chequeo-7 could not be removed because it is locked by another worker
+ *
+ * Qué pasaba: el propio chequeo de los 7 minutos, al terminar y confirmar el pago, llamaba a
+ * esta función para limpiar lo que quedara pendiente... incluyéndose A SÍ MISMO. BullMQ le pone
+ * un candado al job mientras lo está ejecutando, así que un job no se puede borrar a sí mismo:
+ * de ahí el "locked by another worker". Nunca fue un error de verdad (no se perdía ningún pago
+ * ni se le escribía nada raro al cliente), pero en el log parecía uno. Ahora el chequeo que está
+ * corriendo se saltea, y si aun así algún otro job está tomado en ese instante, se dice en
+ * castellano que es normal en vez de escupir el error crudo.
+ */
+export async function cancelarChequeosTempranos(bloqueoId: number, exceptoMinuto?: number): Promise<void> {
   for (const minuto of MINUTOS_CHEQUEO_TEMPRANO) {
+    if (minuto === exceptoMinuto) continue; // es el que está corriendo ahora: no puede borrarse solo.
     try {
       const job = await getBloqueoQueue().getJob(jobIdChequeo(bloqueoId, minuto));
       if (job) await job.remove();
     } catch (err) {
-      console.warn(`[bloqueo] No pude cancelar el chequeo temprano de los ${minuto} min del bloqueo #${bloqueoId}:`, (err as Error).message);
+      const mensaje = (err as Error).message ?? "";
+      if (/locked by another worker/i.test(mensaje)) {
+        // Se está ejecutando justo en este instante: ya no hay nada que cancelar, y ese chequeo
+        // al terminar va a ver el pago ya registrado y no le va a escribir nada al cliente.
+        console.log(
+          `[bloqueo] El chequeo temprano de los ${minuto} min del bloqueo #${bloqueoId} ya estaba ` +
+            "corriendo justo ahora — no hay nada que cancelar (es normal)."
+        );
+      } else {
+        console.warn(
+          `[bloqueo] No pude cancelar el chequeo temprano de los ${minuto} min del bloqueo #${bloqueoId}:`,
+          mensaje
+        );
+      }
     }
   }
 }

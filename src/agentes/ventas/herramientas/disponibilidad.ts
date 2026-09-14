@@ -26,7 +26,7 @@ export const consultarFechasAlternativasTool: ToolDefinition = {
   name: "consultar_fechas_alternativas",
   permitirRedaccion: true,
   description:
-    "Fechas CERCANAS que SÍ tienen cupo, con el tipo de alojamiento que queda libre en cada una. Úsala cuando la fecha que pidió el cliente no tiene cupo (te lo dijo consultar_planes) o cuando el cliente pregunta '¿y qué fechas tienes disponibles?'. Pasale la fecha que pidió el cliente como `fecha` y, si las sabés, `personas` y `noches`. Las FECHAS y los tipos de alojamiento que devuelve se copian EXACTOS: nunca ofrezcas una fecha que no venga en esta respuesta.",
+    "Fechas CERCANAS que SÍ tienen cupo, con el tipo de alojamiento que queda libre en cada una. Úsala cuando la fecha que pidió el cliente no tiene cupo (te lo dijo consultar_planes) o cuando el cliente pregunta '¿y qué fechas tienes disponibles?'. Pásale la fecha que pidió el cliente como `fecha` y, si las sabes, `personas` y `noches`. Las FECHAS y los tipos de alojamiento que devuelve se copian EXACTOS: nunca ofrezcas una fecha que no venga en esta respuesta.",
   parameters: {
     type: "object",
     properties: {
@@ -57,7 +57,7 @@ export const consultarFechasAlternativasTool: ToolDefinition = {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
       return {
         result: { ok: false, motivo: "fecha inválida" },
-        reply_to_user: "¿Me confirmás la fecha que tenés en mente? Con eso te digo qué días tengo disponibles.",
+        reply_to_user: "¿Me confirmas la fecha que tienes en mente? Con eso te digo qué días tengo disponibles.",
       };
     }
 
@@ -72,7 +72,7 @@ export const consultarFechasAlternativasTool: ToolDefinition = {
       return {
         result: { ok: false, motivo: "no se pudo confirmar disponibilidad por día" },
         reply_to_user:
-          "Justo ahora no puedo confirmarte otras fechas — dejame consultarlo con el equipo de La Julita y te digo enseguida.",
+          "Justo ahora no puedo confirmarte otras fechas — déjame consultarlo con el equipo de La Julita y te digo enseguida.",
       };
     }
 
@@ -96,7 +96,7 @@ export const consultarFechasAlternativasTool: ToolDefinition = {
         result: { ok: true, encontradas: 0, desde: fecha, dias_buscados: dias, noches },
         reply_to_user:
           `Busqué los ${dias} días siguientes a esa fecha y no me queda cupo${personas > 0 ? ` para ${personas} personas` : ""}. ` +
-          "¿Querés que mire un poco más adelante, o tenés otra fecha en mente?",
+          "¿Quieres que mire un poco más adelante, o tienes otra fecha en mente?",
       };
     }
 

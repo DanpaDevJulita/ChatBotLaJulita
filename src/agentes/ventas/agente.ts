@@ -3,6 +3,7 @@ import { consultarPlanesTool, consultarAdicionalesTool } from "./herramientas/pl
 import { consultarFechasAlternativasTool } from "./herramientas/disponibilidad.js";
 import { registrarDatosReservaTool } from "./herramientas/reserva.js";
 import { preguntarFormaDePagoTool, enviarDatosPagoTool, verificarPagoTool } from "./herramientas/pago.js";
+import { consultarPoliticasTool } from "./herramientas/politicas.js";
 // [2026-09-08] Estas dos siguen sin datos cargados en Supabase (faq, configuracion) — se dejan
 // importadas en comentario para tener a la vista qué falta activar, no por error. Para
 // reactivar una: descomentá el import, su línea en `herramientas` Y el bloque que le
@@ -44,6 +45,9 @@ export const agente: DefinicionAgente = {
     enviarDatosPagoTool,
     // [2026-09-11] "ya pagué": en vez de pedirle el comprobante, el bot le pregunta a Bold.
     verificarPagoTool,
+    // [2026-09-13] Reembolsos, cambios de fecha, horarios, jacuzzi, normas: el texto oficial
+    // del glamping, tal cual está en la tabla `politicas` (ver sql/politicas.sql).
+    consultarPoliticasTool,
     // preguntasFrecuentesTool, // [PENDIENTE] reactivar cuando se cargue la tabla `faq`
     // consultarHorariosTool,   // [PENDIENTE] reactivar cuando se cargue `configuracion`
   ],

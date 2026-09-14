@@ -1,0 +1,83 @@
+import type { ToolDefinition, ToolResult } from "../../../core/tools/types.js";
+import { politica, politicasUnidas } from "../../../core/db/politicasRepo.js";
+
+/**
+ * [2026-09-13] Las políticas oficiales del glamping, leídas de la tabla `politicas`
+ * (ver sql/politicas.sql y core/db/politicasRepo.ts).
+ *
+ * VA LITERAL A PROPÓSITO (`permitirRedaccion: false`). Dos razones, y las dos importan:
+ *
+ *   1. Son condiciones comerciales: plazos ("15 días o más"), montos ($ 100.000, $ 150.000) y
+ *      un "sin excepciones" que no admite matices. Si el modelo las redactara con su voz, tarde
+ *      o temprano suavizaría un plazo o redondearía un monto, y el cliente tendría en el chat
+ *      una promesa que el negocio no va a cumplir.
+ *   2. Por cómo funciona la red de seguridad de cifras del pipeline (ver `montosEn` en
+ *      core/pipeline/runTurn.ts), una cifra de dinero que el modelo escriba sin que haya salido
+ *      de una herramienta hace que se descarte el mensaje entero. Es decir: aunque quisiéramos,
+ *      el bot NO podría contar estas políticas de memoria — tiene que llamar esta herramienta.
+ *
+ * Los montos que devuelve quedan además habilitados para el resto del turno, así que después de
+ * llamarla el agente puede referirse a ellos con naturalidad sin que el mensaje se caiga.
+ */
+
+const SIN_POLITICA_CARGADA =
+  "Déjame confirmar ese detalle con el equipo de La Julita y te escribo enseguida 🙏";
+
+export const consultarPoliticasTool: ToolDefinition = {
+  name: "consultar_politicas",
+  // El texto sale EXACTO: son condiciones comerciales, no material para redactar.
+  permitirRedaccion: false,
+  description:
+    "Las políticas oficiales de La Julita, en el texto exacto del glamping. Llámala SIEMPRE que el cliente pregunte por reembolsos, cancelaciones, cambios o reprogramación de fecha, qué pasa si no puede venir, si puede ceder su reserva, horarios de check-in/check-out, hora extra, uso del jacuzzi, la fogata, mascotas, parlantes, ruido, menores de edad, o si pide los términos y condiciones. Usa tema='reservas' para lo de reembolsos y cambios de fecha, tema='estadia' para horarios, jacuzzi, fogata y normas de convivencia, y tema='todo' si pide las condiciones completas. NUNCA cuentes estas políticas de memoria ni las reformules: plazos y montos tienen que salir de acá tal cual.",
+  parameters: {
+    type: "object",
+    properties: {
+      tema: {
+        type: "string",
+        enum: ["reservas", "estadia", "todo"],
+        description:
+          "'reservas' = términos y condiciones de la reserva (reembolsos, reprogramación, ceder la reserva, cambios de fecha con su valor adicional). 'estadia' = información antes de reservar (check-in/check-out y hora extra, restaurante, jacuzzi, fogata, restricciones y normas de convivencia). 'todo' = las dos cosas.",
+      },
+    },
+    required: ["tema"],
+  },
+  handler: async (args: { tema?: string }): Promise<ToolResult> => {
+    const tema = args?.tema === "estadia" || args?.tema === "todo" ? args.tema : "reservas";
+
+    const texto =
+      tema === "estadia"
+        ? await politica("antes_de_reservar")
+        : tema === "todo"
+          ? await politicasUnidas(["terminos_reserva", "antes_de_reservar"], "\n\n")
+          : await politica("terminos_reserva");
+
+    // Sin dato en la base no se improvisa: el bot deriva al equipo, igual que hace con los
+    // planes cuando la tabla viene vacía. Inventar una condición comercial es peor que demorar
+    // la respuesta.
+    if (!texto) {
+      console.error(
+        `[consultar_politicas] No hay política cargada para tema="${tema}". ` +
+          "¿Se corrió sql/politicas.sql en Supabase?"
+      );
+      return {
+        result: { ok: false, tema, motivo: "no hay políticas cargadas en la base" },
+        reply_to_user: SIN_POLITICA_CARGADA,
+      };
+    }
+
+    return {
+      result: {
+        ok: true,
+        tema,
+        // El texto va también en el `result` para que quede en el historial del modelo: así, si
+        // en el mismo turno el cliente repregunta por un detalle, el agente lo tiene a la vista
+        // (y sus montos siguen habilitados) sin volver a llamar la herramienta.
+        texto,
+        nota_para_el_agente:
+          "Este texto ya se le mandó al cliente TAL CUAL. No lo repitas ni lo resumas: si hace falta, " +
+          "sigue la conversación con una sola pregunta corta (por ejemplo, si le quedó alguna duda).",
+      },
+      reply_to_user: texto,
+    };
+  },
+};

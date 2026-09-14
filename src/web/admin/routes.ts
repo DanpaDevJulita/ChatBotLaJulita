@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAdmin, login, logout, sessionStatus } from "./auth.js";
 import * as faqRepo from "../../core/db/faqRepo.js";
+import * as politicasRepo from "../../core/db/politicasRepo.js";
 import * as catalogoRepo from "../../core/db/catalogoRepo.js";
 import * as mensajesRepo from "../../core/db/mensajesRepo.js";
 import { supabaseConfigured } from "../../core/db/supabase.js";
@@ -40,6 +41,47 @@ adminApiRouter.put("/faq/:tema", async (req, res) => {
 adminApiRouter.delete("/faq/:tema", async (req, res) => {
   try {
     await faqRepo.deleteFaq(req.params.tema);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+// --- Políticas -------------------------------------------------------------------------------
+// [2026-09-13] Los términos y condiciones del glamping viven en la tabla `politicas` y el bot
+// los manda TAL CUAL (ver sql/politicas.sql). Se editan desde acá para que cambiar un plazo o un
+// monto no necesite tocar código ni volver a desplegar: el bot los relee a los 30 segundos.
+//
+// OJO: lo que se guarde acá es lo que el cliente va a leer, palabra por palabra. Es WhatsApp, así
+// que la negrita va con UN asterisco (*así*), no con dos.
+adminApiRouter.get("/politicas", async (_req, res) => {
+  res.json(await politicasRepo.listPoliticas(true));
+});
+
+adminApiRouter.put("/politicas/:clave", async (req, res) => {
+  try {
+    const contenido = String(req.body?.contenido ?? "").trim();
+    // Una política vacía es peor que ninguna: el bot dejaría de mandarla sin que nadie se entere.
+    // Para desactivarla está `activo`, y para sacarla del todo está el DELETE de abajo.
+    if (!contenido) {
+      res.status(400).json({ ok: false, error: "El contenido no puede quedar vacío." });
+      return;
+    }
+    await politicasRepo.upsertPolitica({
+      clave: req.params.clave,
+      titulo: typeof req.body?.titulo === "string" ? req.body.titulo : null,
+      contenido,
+      activo: req.body?.activo === undefined ? true : Boolean(req.body.activo),
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+adminApiRouter.delete("/politicas/:clave", async (req, res) => {
+  try {
+    await politicasRepo.deletePolitica(req.params.clave);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ ok: false, error: (err as Error).message });

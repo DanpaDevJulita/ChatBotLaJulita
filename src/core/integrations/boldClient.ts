@@ -73,6 +73,18 @@ export type TipoPago = "total" | "abono" | "saldo";
  */
 export type ModalidadMonto = "CLOSE" | "OPEN";
 
+/**
+ * [2026-09-13] Daniel pidió que el checkout de estos links NO ofrezca "Pago con tarjeta" —
+ * esa opción se habilitará más adelante con un link aparte. Se deja "Pago a un clic" tal
+ * cual (no se toca), y se restringe solo lo que Bold documenta bajo `payment_methods`.
+ *
+ * OJO: la doc de Bold para POST /online/link/v1 solo enumera CREDIT_CARD, PSE,
+ * BOTON_BANCOLOMBIA y NEQUI — no menciona "QR Bre-B" como valor aparte del campo. Quedó
+ * pendiente confirmar en vivo (generando un link real) si Bre-B sigue apareciendo en el
+ * checkout al mandar esta lista sin CREDIT_CARD, o si conviene ajustarla.
+ */
+const PAYMENT_METHODS_SIN_TARJETA = ["PSE", "BOTON_BANCOLOMBIA", "NEQUI"];
+
 export interface CrearLinkDePagoInput {
   /**
    * Monto YA calculado desde la reserva (fn_total_reserva en la base de datos).
@@ -113,6 +125,7 @@ export async function crearLinkDePago(input: CrearLinkDePagoInput): Promise<Link
           amount_type: "OPEN",
           reference: input.reference,
           description: input.description,
+          payment_methods: PAYMENT_METHODS_SIN_TARJETA,
         }
       : {
           amount_type: "CLOSE",
@@ -124,6 +137,7 @@ export async function crearLinkDePago(input: CrearLinkDePagoInput): Promise<Link
           },
           reference: input.reference,
           description: input.description,
+          payment_methods: PAYMENT_METHODS_SIN_TARJETA,
         };
 
   // [2026-09-11] El error de Bold se traduce a mano a proposito. Antes esto era un `await`

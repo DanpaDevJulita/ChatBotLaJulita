@@ -58,3 +58,57 @@ export async function notificarEscalamiento(params: {
     }
   }
 }
+
+/**
+ * [2026-09-14] Aviso al equipo de VENTAS cuando un cliente ya pagó (y ya recibió su confirmación
+ * por WhatsApp) pero la reserva NO se pudo crear sola en LobbyPMS.
+ *
+ * Es el aviso más importante que manda este bot: en ese momento hay un cliente con una
+ * confirmación por escrito y un cupo que, en el calendario de La Julita, no existe. Si nadie la
+ * crea a mano, esa fecha se le puede vender a otra persona. Por eso va por WhatsApp al equipo
+ * (acá) y además al canal técnico (ver notificarDesarrollo.ts) — es preferible avisar de más.
+ *
+ * Nunca lanza: si esto falla, el detalle igual queda completo en los logs.
+ */
+export async function avisarReservaNoCreadaEnLobby(params: {
+  bloqueoId: number;
+  reservaId: number | null;
+  externalIdCliente: string | null;
+  fechaEntrada: string | null;
+  motivo: string;
+}): Promise<void> {
+  const numeros = numerosAutorizados();
+  if (numeros.length === 0) {
+    console.error(
+      "[notificarEquipo] ¡Reserva pagada SIN crear en LobbyPMS y OWNER_WHATSAPP_NUMBERS está vacío! " +
+        `Bloqueo #${params.bloqueoId} — nadie del equipo se va a enterar por WhatsApp.`
+    );
+    return;
+  }
+
+  const texto =
+    `🚨 Reserva PAGADA que hay que crear A MANO en LobbyPMS\n\n` +
+    `El cliente ya pagó y el bot ya le confirmó la reserva, pero no se pudo crear en LobbyPMS.\n\n` +
+    `Cliente: ${params.externalIdCliente ?? "(sin número)"}\n` +
+    (params.reservaId ? `Reserva (nuestra base): #${params.reservaId}\n` : "") +
+    `Bloqueo: #${params.bloqueoId}\n` +
+    (params.fechaEntrada ? `Fecha de entrada: ${params.fechaEntrada}\n` : "") +
+    `\nMotivo: ${params.motivo}\n\n` +
+    `⚠️ Hasta que se cree allá, esa fecha puede venderse a otra persona.`;
+
+  let whatsapp;
+  try {
+    whatsapp = getChannel("whatsapp");
+  } catch (err) {
+    console.error("[notificarEquipo] No hay canal 'whatsapp' registrado — no se pudo avisar:", err);
+    return;
+  }
+
+  for (const numero of numeros) {
+    try {
+      await whatsapp.send({ to: numero, text: texto });
+    } catch (err) {
+      console.error(`[notificarEquipo] Falló el aviso de reserva sin crear a ${numero}:`, err);
+    }
+  }
+}

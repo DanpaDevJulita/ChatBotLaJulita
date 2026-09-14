@@ -16,7 +16,16 @@
     "prueba:verificar": "tsx pruebas/e2e-verificar-pago.ts",
     "prueba:cupo": "tsx pruebas/e2e-liberacion-cupo.ts",
     "prueba:chequeo-temprano": "tsx pruebas/e2e-chequeo-temprano.ts",
-    "prueba:reserva-real": "tsx pruebas/prueba-reserva-real-lobby.ts"
+    "prueba:politicas": "tsx pruebas/e2e-politicas.ts",
+    "prueba:reserva-activa": "tsx pruebas/e2e-reserva-activa.ts",
+    "prueba:reserva-real": "tsx pruebas/prueba-reserva-real-lobby.ts",
+    "prueba:alerta-tecnica": "tsx pruebas/e2e-alerta-tecnica.ts",
+    "prueba:plantilla-precio": "tsx pruebas/e2e-plantilla-precio.ts",
+    "prueba:repeticion": "tsx pruebas/e2e-repeticion-precio.ts",
+    "prueba:gateway": "tsx pruebas/e2e-gateway-timeout.ts",
+    "prueba:abono": "tsx pruebas/e2e-abono-no-pierde-cupo.ts",
+    "prueba:pago-simulado": "tsx pruebas/e2e-pago-simulado-completo.ts",
+    "prueba:saldo": "tsx pruebas/e2e-saldo-sin-escalar.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",
@@ -26,12 +35,14 @@
     "express": "^4.21.1",
     "express-session": "^1.19.0",
     "ioredis": "^5.4.1",
+    "nodemailer": "^6.9.15",
     "openai": "^4.68.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/express-session": "^1.19.0",
     "@types/node": "^22.7.0",
+    "@types/nodemailer": "^6.4.16",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }

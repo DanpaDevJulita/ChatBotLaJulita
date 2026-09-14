@@ -14,7 +14,7 @@ import {
 import { registrarPagoAprobado } from "../core/db/pagosRepo.js";
 import { bloqueoIdDeReserva } from "../core/db/bloqueosRepo.js";
 import { avisarPagoConfirmado } from "../core/pipeline/avisarPago.js";
-import { cancelarSeguimientoDePago } from "../core/queue/bloqueoQueue.js";
+import { finalizarPagoConfirmado } from "../core/pipeline/confirmarReserva.js";
 
 registerChannel(whatsappYcloudAdapter);
 
@@ -151,12 +151,20 @@ export function createApp() {
           estadoPago: resultado.estadoPago,
         }).catch((err) => console.error("[webhook bold] fallo el aviso al cliente (el pago SI quedo registrado):", err));
 
-        // [2026-09-13] El webhook ya confirmo el pago: los chequeos internos que quedaran
-        // pendientes (los de paso a los 3/7 min, y el ultimo antes de liberar) ya no tienen nada
-        // que hacer — cancelarlos evita seguir consultando a Bold algo que ya sabemos.
+        // [2026-09-14] El webhook ya confirmo el pago: se cierra TODO lo que falta — se marca el
+        // bloqueo como confirmado, se cancelan los chequeos pendientes y, lo mas importante, se
+        // crea la reserva REAL en LobbyPMS. Antes esto ultimo solo pasaba con el /confirmar
+        // manual del equipo, asi que un pago confirmado solo por el webhook dejaba al cliente con
+        // su confirmacion por escrito y a La Julita sin nada reservado (ver confirmarReserva.ts).
         void bloqueoIdDeReserva(resultado.reservaId)
-          .then((bloqueoId) => (bloqueoId ? cancelarSeguimientoDePago(bloqueoId) : undefined))
-          .catch((err) => console.error("[webhook bold] no pude cancelar el seguimiento pendiente del bloqueo:", err));
+          .then((bloqueoId) =>
+            finalizarPagoConfirmado({
+              bloqueoId,
+              reservaId: resultado.reservaId,
+              origen: "webhook-bold",
+            })
+          )
+          .catch((err) => console.error("[webhook bold] no pude cerrar la confirmacion del bloqueo:", err));
       }
     } catch (err) {
       console.error("[webhook bold] error inesperado:", err);

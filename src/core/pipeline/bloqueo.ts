@@ -14,7 +14,7 @@ import { liberarBlockLobby } from "../integrations/lobbypms.js";
 const MENSAJE_LIBERACION =
   "⏰ Ya pasaron los 10 minutos y no me llegó la confirmación del pago, así que liberé el cupo " +
   "que te había apartado — si alguien más lo tomó mientras tanto, puede que ya no esté 😕\n\n" +
-  "Si seguís interesado, decime y reviso de nuevo la disponibilidad para esa fecha.";
+  "Si sigues interesado, dime y reviso de nuevo la disponibilidad para esa fecha.";
 
 /**
  * Se dispara BLOQUEO_MINUTOS después de crear un bloqueo (ver src/agentes/ventas/herramientas/reserva.ts).

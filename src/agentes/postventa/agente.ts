@@ -7,6 +7,7 @@ import { buscarReservaClienteTool } from "./herramientas/buscarReserva.js";
 import { consultarPlanesTool, consultarAdicionalesTool } from "../ventas/herramientas/planes.js";
 import { consultarFechasAlternativasTool } from "../ventas/herramientas/disponibilidad.js";
 import { registrarDatosReservaTool } from "../ventas/herramientas/reserva.js";
+import { consultarPoliticasTool } from "../ventas/herramientas/politicas.js";
 
 /**
  * Agente de POSTVENTA — atiende a quien ya tiene (o cree tener) una reserva: cambios,
@@ -27,5 +28,10 @@ export const agente: DefinicionAgente = {
     consultarFechasAlternativasTool,
     consultarAdicionalesTool,
     registrarDatosReservaTool,
+    // [2026-09-13] Postventa es justo donde más se pregunta por esto ("¿puedo cambiar la
+    // fecha?", "¿me devuelven el dinero?", "¿a qué hora es el check-out?"). El texto sale de la
+    // tabla `politicas`, literal — el bot puede CONTAR la política, pero ejecutar el cambio o
+    // la cancelación sigue siendo del equipo (ver prompt.md).
+    consultarPoliticasTool,
   ],
 };

@@ -19,7 +19,12 @@ export function startBloqueoWorker() {
     QUEUE_BLOQUEO,
     async (job) => {
       if (job.name === "chequeo-temprano") {
-        await ejecutarChequeoTemprano(job.data);
+        // El id del job es "bloqueo-<id>-chequeo-<minuto>" (ver jobIdChequeo): de ahí sale qué
+        // chequeo es este, para que al terminar no intente cancelarse a sí mismo — BullMQ lo
+        // tiene tomado mientras corre y eso dejaba un "could not be removed because it is locked
+        // by another worker" en los logs que parecía un error y no lo era.
+        const minutoEnCurso = Number(String(job.id ?? "").match(/-chequeo-(\d+)$/)?.[1]) || undefined;
+        await ejecutarChequeoTemprano(job.data, minutoEnCurso);
         return;
       }
       const adapter = getChannel(job.data.canal);

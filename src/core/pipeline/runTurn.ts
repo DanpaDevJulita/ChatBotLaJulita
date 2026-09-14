@@ -72,6 +72,23 @@ const UMBRAL_RECORDATORIO_MS = 15 * 60 * 1000;
  * herramientas) quedan solo en este cache, para no ensuciar el monitor con detalles internos.
  */
 const historyByUser = new Map<string, any[]>();
+
+/**
+ * [2026-09-13] Los últimos argumentos con los que `consultar_planes` corrió BIEN en cada
+ * conversación (ej. `{plan: "DOMO DELUXE", fecha: "2026-09-15", personas: 1}`).
+ *
+ * Para qué: cuando el modelo contesta de memoria con una cifra sin verificar, el pipeline
+ * fuerza una revalidación (ver más abajo). Ese forzado dependía de que el modelo OBEDECIERA el
+ * `tool_choice` — y en producción se comprobó que no siempre lo hace: en el log del 2026-09-13
+ * se ve el forzado dispararse y, en el hop siguiente, NINGUNA llamada a la herramienta. Cuando
+ * eso pasa el turno se queda sin dato fresco y el cliente recibe el "dame un momento que
+ * confirmo con el equipo" por una pregunta trivial que el bot ya había contestado bien.
+ *
+ * Con esto, la revalidación deja de depender del modelo: el pipeline llama la herramienta ÉL
+ * MISMO, con los argumentos que ya funcionaron en esta conversación.
+ */
+const ultimosArgsDePlanes = new Map<string, Record<string, unknown>>();
+
 const MAX_HOPS = 4;
 const FALLBACK_REPLY = "Perdón, no pude procesar eso. ¿Puedes repetirlo?";
 
@@ -161,6 +178,18 @@ export function registrarMensajeDelBot(canal: string, externalId: string, texto:
  */
 export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter): Promise<void> {
   const key = `${event.channel}:${event.externalId}`;
+
+  // [2026-09-13] Candado anti-bucle: nunca atender un mensaje que venga del PROPIO número del
+  // bot. Desde hoy el bot se manda a sí mismo los avisos técnicos (decisión de Daniel: "por
+  // ahora que se escriba a el mismo, yo lo valido"), y si alguna vez el proveedor devolviera
+  // ese mensaje como entrante, el bot se respondería solo, en loop, gastando plata de API y
+  // llenando la conversación. Es barato dejarlo blindado aunque hoy no pase.
+  const soloDigitos = (n: string) => (n ?? "").replace(/\D/g, "");
+  const numeroPropio = soloDigitos(process.env.YCLOUD_FROM_PHONE_NUMBER ?? "");
+  if (numeroPropio && soloDigitos(event.externalId) === numeroPropio) {
+    console.log(`[runTurn] ${key}: mensaje del propio número del bot — lo ignoro (candado anti-bucle).`);
+    return;
+  }
 
   // Comandos del equipo (/corrige, /correcciones, /borra) — solo desde los números de
   // OWNER_WHATSAPP_NUMBERS. Se atienden ANTES de tratar el mensaje como una consulta de
@@ -372,6 +401,13 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
             ),
           });
 
+          // Se recuerdan los argumentos que SÍ funcionaron, para poder repetir la consulta sin
+          // depender del modelo si más adelante hace falta revalidar un precio (ver
+          // ultimosArgsDePlanes, arriba).
+          if (call.function.name === "consultar_planes" && toolResult.reply_to_user) {
+            ultimosArgsDePlanes.set(key, args);
+          }
+
           if (toolResult.reply_to_user) {
             if (redaccionLibre) {
               textoDeRespaldo = toolResult.reply_to_user;
@@ -418,21 +454,78 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
         console.warn("LLM devolvió content vacío", { hops, key });
       }
 
-      const mencionaPlata = content.trim().length > 0 && montosEn(content).length > 0;
+      const montosDeEsteTexto = montosEn(content);
+      const mencionaPlata = content.trim().length > 0 && montosDeEsteTexto.length > 0;
+      // [2026-09-13] Caso real (log de Daniel): el cliente pregunta algo tipo "¿qué incluye y
+      // cuánto cuesta?" sobre un plan que YA se cotizó (con datos reales) más temprano en este
+      // MISMO turno — el modelo, al redactar, repite esa MISMA cifra ya verificada en vez de
+      // volver a llamar la herramienta. Antes esto se descartaba igual y se forzaba otra vuelta
+      // a `consultar_planes` — un hop extra de más (más lento) para terminar validando un
+      // número que ya estaba validado. Ahora solo se fuerza la revalidación si el texto trae
+      // alguna cifra que TODAVÍA no esté entre las permitidas de este turno — una cifra que ya
+      // vino de una llamada real a la base en este mismo turno no necesita otra vuelta.
+      const hayCifraSinVerificarEsteTurno = montosDeEsteTexto.some((m) => !valoresPermitidos.has(m));
 
-      if (mencionaPlata && tieneConsultarPlanes && !yaForzoRevalidacionDePrecio) {
+      if (mencionaPlata && hayCifraSinVerificarEsteTurno && tieneConsultarPlanes && !yaForzoRevalidacionDePrecio) {
         // Ver el comentario de yaForzoRevalidacionDePrecio más arriba: se descarta esta
         // respuesta entera (no se guarda en el historial ni se manda) y se fuerza consultar_planes
         // en el próximo hop, para que la cifra que diga después quede anclada a la base y pase
         // por la verificación de abajo. Solo se fuerza UNA vez por turno, para no encadenar hops
         // de más si el modelo insiste en contestar sin apoyarse en la herramienta.
         console.warn(
-          `[runTurn] Texto libre con cifras de dinero sin llamar ninguna herramienta este hop — ` +
-            `${key}: lo descarto y fuerzo "consultar_planes" para confirmar el precio actual.`
+          `[runTurn] Texto libre con cifras de dinero sin verificar en este turno — ` +
+            `${key}: lo descarto y confirmo el precio actual contra la base.`
         );
         yaForzoRevalidacionDePrecio = true;
+
+        // [2026-09-13] La revalidación la hace el PIPELINE, no el modelo. Antes acá solo se
+        // ponía `forzarProximaHerramienta` (tool_choice forzado) y se confiaba en que el modelo
+        // llamara la herramienta en el hop siguiente — en el log real del 2026-09-13 se ve que
+        // NO lo hizo, y el turno terminó sin ningún dato fresco: el cliente recibió "dame un
+        // momento que confirmo con el equipo" por una pregunta que el bot ya sabía contestar.
+        // Ahora se llama la herramienta directamente, con los argumentos que ya funcionaron en
+        // esta conversación, y el resultado se le entrega al modelo como contexto del sistema
+        // (no como mensaje `tool`: la API exige que un `tool` venga pegado a su `tool_call`, y
+        // acá no hubo ninguno). El `tool_choice` forzado se deja igual, por si el modelo sí
+        // decide llamarla: dos fuentes frescas no molestan, una cifra inventada sigue sin pasar.
+        const argsRecordados = ultimosArgsDePlanes.get(key);
+        if (argsRecordados) {
+          try {
+            const handler = handlerDeHerramienta("consultar_planes", agente.herramientas);
+            console.log(
+              `[runTurn] revalidación directa de "consultar_planes" (hop ${hops}) — ${key}: ` +
+                `${JSON.stringify(argsRecordados)}`
+            );
+            const fresco = await handler(argsRecordados, { channel: event.channel, externalId: event.externalId });
+            if (fresco.reply_to_user) {
+              textoDeRespaldo = fresco.reply_to_user;
+              for (const monto of montosEn(fresco.reply_to_user)) valoresPermitidos.add(monto);
+              for (const monto of montosEn(JSON.stringify(fresco.result))) valoresPermitidos.add(monto);
+              history.push({
+                role: "system",
+                content:
+                  "Datos frescos de la base para responder este mensaje (consultar_planes, " +
+                  `${JSON.stringify(argsRecordados)}): ${JSON.stringify({ datos: fresco.result, texto_base: fresco.reply_to_user })}`,
+              });
+              console.log(
+                `[runTurn] revalidación directa OK — ${key}: montos_permitidos=${JSON.stringify([...valoresPermitidos])}`
+              );
+            }
+          } catch (err) {
+            // Que falle la revalidación no puede tumbar el turno: sin dato fresco el mensaje del
+            // modelo simplemente no va a pasar la verificación de abajo, que es el comportamiento
+            // seguro de siempre.
+            console.error(`[runTurn] la revalidación directa de "consultar_planes" falló — ${key}:`, err);
+          }
+        } else {
+          console.warn(
+            `[runTurn] no hay argumentos previos de "consultar_planes" para ${key} — ` +
+              "dependo del tool_choice forzado para revalidar."
+          );
+        }
+
         forzarProximaHerramienta = "consultar_planes";
-        // No seteamos finalText: el while sigue (si quedan hops) con tool_choice forzado.
+        // No seteamos finalText: el while sigue (si quedan hops).
       } else {
         // Solo asignamos si hay contenido real; si viene vacío, dejamos finalText en null
         // para no cortar el ciclo con un string vacío (eso rompía el envío a YCloud).

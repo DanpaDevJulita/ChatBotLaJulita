@@ -1,4 +1,72 @@
 import { supabase, supabaseConfigured } from "./supabase.js";
+import { alertarFalloTecnico } from "../pipeline/notificarDesarrollo.js";
+
+/**
+ * [2026-09-13] "Gateway Timeout" al leer el catálogo — pasó varias veces en producción
+ * (ej. `[catalogoRepo:clase_domo] list: Gateway Timeout`).
+ *
+ * Qué es: Supabase contesta HTTP 504 cuando su puerta de entrada no alcanzó a recibir la
+ * respuesta de la base a tiempo. No es un error de nuestras consultas ni de los datos: es un
+ * momento malo (proyecto en plan gratuito despertando o con poca capacidad, o un tropiezo de red
+ * entre la máquina donde corre el bot y Supabase). Casi siempre, el mismo pedido repetido un
+ * segundo después funciona sin problema.
+ *
+ * Por qué importaba tanto: antes, una sola de estas fallas dejaba al bot SIN CATÁLOGO en ese
+ * turno (la función devolvía una lista vacía), y con la lista vacía el cliente terminaba viendo
+ * un "todavía no tengo los planes cargados" — un problema visible para el cliente por un hipo de
+ * un segundo que nadie más notó.
+ *
+ * Qué hace esto: reintenta una vez (esperando un momento) y, si tampoco funciona, devuelve lo
+ * ÚLTIMO que sí se pudo leer de esa misma consulta (el catálogo casi nunca cambia, así que el
+ * dato de hace un minuto sirve perfecto). Solo si nunca se pudo leer nada devuelve vacío. En
+ * todos los casos la falla queda en los logs y dispara el aviso técnico al equipo.
+ */
+const ultimoDatoBueno = new Map<string, unknown[]>();
+
+async function leerCatalogo<T>(params: {
+  /** Identifica la consulta en los logs y en el aviso técnico, ej. "planes". */
+  etiqueta: string;
+  /** Distingue variantes de la misma tabla (ej. solo activos vs. todos) para el dato de respaldo. */
+  clave: string;
+  consulta: () => PromiseLike<{ data: unknown; error: { message: string } | null }>;
+}): Promise<T[]> {
+  const { etiqueta, clave, consulta } = params;
+
+  for (let intento = 1; intento <= 2; intento++) {
+    const { data, error } = await consulta();
+
+    if (!error) {
+      const filas = (data ?? []) as T[];
+      ultimoDatoBueno.set(clave, filas as unknown[]);
+      return filas;
+    }
+
+    if (intento === 1) {
+      console.warn(`[catalogoRepo:${etiqueta}] ${error.message} — reintento en 400 ms.`);
+      await new Promise((listo) => setTimeout(listo, 400));
+      continue;
+    }
+
+    // Segundo intento fallido: se avisa al equipo y se usa el último dato bueno si existe.
+    console.error(`[catalogoRepo:${etiqueta}] list: ${error.message}`);
+    void alertarFalloTecnico({
+      clave: `catalogo:${etiqueta}`,
+      titulo: `Supabase: no se pudo leer ${etiqueta} (falló dos veces seguidas)`,
+      detalle: error.message,
+    });
+
+    const respaldo = ultimoDatoBueno.get(clave) as T[] | undefined;
+    if (respaldo) {
+      console.warn(
+        `[catalogoRepo:${etiqueta}] uso el último dato bueno (${respaldo.length} fila(s)) para no ` +
+          "dejar al cliente sin catálogo."
+      );
+      return respaldo;
+    }
+  }
+
+  return [];
+}
 
 // Planes -----------------------------------------------------------------------------------
 // Forma real de la tabla `planes` (rediseño del 2026-09-04, ver sql/schema.sql PARTE 2):
@@ -21,14 +89,15 @@ export interface Plan {
 export const planesRepo = {
   async list(soloActivos = false): Promise<Plan[]> {
     if (!supabaseConfigured) return [];
-    let query = supabase.from("planes").select("*").order("id", { ascending: true });
-    if (soloActivos) query = query.eq("activo", true);
-    const { data, error } = await query;
-    if (error) {
-      console.error("[catalogoRepo:planes] list:", error.message);
-      return [];
-    }
-    return (data ?? []) as Plan[];
+    return leerCatalogo<Plan>({
+      etiqueta: "planes",
+      clave: `planes:${soloActivos ? "activos" : "todos"}`,
+      consulta: () => {
+        let query = supabase.from("planes").select("*").order("id", { ascending: true });
+        if (soloActivos) query = query.eq("activo", true);
+        return query;
+      },
+    });
   },
 
   async upsert(row: Plan): Promise<Plan> {
@@ -68,14 +137,21 @@ export async function getDomosYClases(): Promise<{ domos: Domo[]; clases: ClaseD
   if (cacheDomos && Date.now() - cacheDomos.at < TTL_DOMOS_MS) {
     return { domos: cacheDomos.domos, clases: cacheDomos.clases };
   }
-  const [resDomos, resClases] = await Promise.all([
-    supabase.from("domos").select("*").order("id", { ascending: true }),
-    supabase.from("clase_domo").select("*").order("id", { ascending: true }),
+  // [2026-09-13] Las dos lecturas pasan por leerCatalogo: con un "Gateway Timeout" de Supabase
+  // se reintenta y, si no, se usa el último dato bueno — antes un 504 acá dejaba al bot sin
+  // domos/clases y el cliente veía "todavía no tengo los planes cargados" (ver leerCatalogo).
+  const [domos, clases] = await Promise.all([
+    leerCatalogo<Domo>({
+      etiqueta: "domos",
+      clave: "domos",
+      consulta: () => supabase.from("domos").select("*").order("id", { ascending: true }),
+    }),
+    leerCatalogo<ClaseDomo>({
+      etiqueta: "clase_domo",
+      clave: "clase_domo",
+      consulta: () => supabase.from("clase_domo").select("*").order("id", { ascending: true }),
+    }),
   ]);
-  if (resDomos.error) console.error("[catalogoRepo:domos] list:", resDomos.error.message);
-  if (resClases.error) console.error("[catalogoRepo:clase_domo] list:", resClases.error.message);
-  const domos = (resDomos.data ?? []) as Domo[];
-  const clases = (resClases.data ?? []) as ClaseDomo[];
   cacheDomos = { domos, clases, at: Date.now() };
   return { domos, clases };
 }
@@ -96,14 +172,15 @@ export interface Adicional {
 export const adicionalesRepo = {
   async list(soloActivos = false): Promise<Adicional[]> {
     if (!supabaseConfigured) return [];
-    let query = supabase.from("adicionales").select("*").order("id", { ascending: true });
-    if (soloActivos) query = query.eq("estado", true);
-    const { data, error } = await query;
-    if (error) {
-      console.error("[catalogoRepo:adicionales] list:", error.message);
-      return [];
-    }
-    return (data ?? []) as Adicional[];
+    return leerCatalogo<Adicional>({
+      etiqueta: "adicionales",
+      clave: `adicionales:${soloActivos ? "activos" : "todos"}`,
+      consulta: () => {
+        let query = supabase.from("adicionales").select("*").order("id", { ascending: true });
+        if (soloActivos) query = query.eq("estado", true);
+        return query;
+      },
+    });
   },
 
   async upsert(row: Adicional): Promise<Adicional> {
@@ -126,23 +203,25 @@ export interface TipoAdicional {
 
 export async function listTipoAdicional(): Promise<TipoAdicional[]> {
   if (!supabaseConfigured) return [];
-  const { data, error } = await supabase.from("tipo_adicional").select("*").order("id", { ascending: true });
-  if (error) {
-    console.error("[catalogoRepo:tipo_adicional] list:", error.message);
-    return [];
-  }
-  return (data ?? []) as TipoAdicional[];
+  return leerCatalogo<TipoAdicional>({
+    etiqueta: "tipo_adicional",
+    clave: "tipo_adicional",
+    consulta: () => supabase.from("tipo_adicional").select("*").order("id", { ascending: true }),
+  });
 }
 
 // Configuración general (horarios de check-in/check-out, y lo que se agregue después) ----
 export async function getConfiguracion(): Promise<Record<string, string>> {
   if (!supabaseConfigured) return {};
-  const { data, error } = await supabase.from("configuracion").select("*");
-  if (error) {
-    console.error("[catalogoRepo] getConfiguracion:", error.message);
-    return {};
-  }
-  return Object.fromEntries((data ?? []).map((r: any) => [r.clave, r.valor]));
+  // Los horarios de check-in/check-out salen de acá y se le muestran al cliente: si un 504 los
+  // dejaba vacíos, el bot contestaba "todavía no tengo los horarios cargados". Con leerCatalogo
+  // se reintenta y, si no, se usa lo último bueno.
+  const filas = await leerCatalogo<{ clave: string; valor: string }>({
+    etiqueta: "configuracion",
+    clave: "configuracion",
+    consulta: () => supabase.from("configuracion").select("*"),
+  });
+  return Object.fromEntries(filas.map((r) => [r.clave, r.valor]));
 }
 
 export async function setConfiguracion(clave: string, valor: string): Promise<void> {

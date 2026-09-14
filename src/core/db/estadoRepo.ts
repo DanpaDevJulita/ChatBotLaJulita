@@ -16,6 +16,14 @@ export interface EstadoConversacion {
   escalado_en: string | null;
   /** Última vez que se le confirmó al CLIENTE "seguís con el equipo" (para no repetirlo en cada mensaje). */
   ultimo_aviso_humano_en: string | null;
+  /**
+   * [2026-09-13] La última reserva que ESTA conversación registró (ver sql/reserva-activa.sql).
+   * Fuente de verdad para los pasos de pago: por encima de cualquier reserva_id que el modelo
+   * mande, para que un cliente nunca pueda terminar pagando la reserva de otro. Ver
+   * conversacionActivaRepo.ts para el porqué completo.
+   */
+  reserva_activa_id: number | null;
+  reserva_activa_en: string | null;
 }
 
 function vacio(canal: string, externalId: string): EstadoConversacion {
@@ -26,6 +34,8 @@ function vacio(canal: string, externalId: string): EstadoConversacion {
     resumen: null,
     escalado_en: null,
     ultimo_aviso_humano_en: null,
+    reserva_activa_id: null,
+    reserva_activa_en: null,
   };
 }
 
@@ -88,6 +98,28 @@ export async function marcarAvisoHumano(canal: string, externalId: string): Prom
     .eq("external_id", externalId);
 
   if (error) console.error("[estadoRepo] marcarAvisoHumano:", error.message);
+}
+
+/**
+ * [2026-09-13] Anota qué reserva quedó activa en esta conversación, justo después de que
+ * `registrar_datos_reserva` la crea con éxito. Vive en la BASE (no en memoria del proceso) a
+ * propósito: con varios procesos del bot corriendo a la vez (o uno solo que se reinicia),
+ * cualquiera de ellos tiene que poder leer este dato — no solo el que atendió el registro.
+ */
+export async function marcarReservaActiva(canal: string, externalId: string, reservaId: number): Promise<void> {
+  if (!supabaseConfigured) return;
+
+  const { error } = await supabase
+    .from("estado_conversacion")
+    .upsert({
+      canal,
+      external_id: externalId,
+      reserva_activa_id: reservaId,
+      reserva_activa_en: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+  if (error) console.error("[estadoRepo] marcarReservaActiva:", error.message);
 }
 
 /**

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { alertarFalloTecnico } from "../pipeline/notificarDesarrollo.js";
 
 /**
  * Disponibilidad REAL de La Julita contra LobbyPMS. Hay DOS caminos y el orden importa:
@@ -307,6 +308,14 @@ export async function consultarDisponibilidadPorDia(
     const estado = clasificarError(err);
     ultimoEstadoOficial = estado;
     console.error(`[lobbypms] API oficial no disponible (${estado}): ${explicar(estado)} [${resumirError(err)}]`);
+    // [2026-09-13] Aviso al equipo de desarrollo (ver notificarDesarrollo.ts) — pedido explícito
+    // de Daniel: aunque el bot siga funcionando con el motor público, esta falla necesita que
+    // alguien la investigue (token rotado, IP que cambió, etc.) antes de que se acumule.
+    void alertarFalloTecnico({
+      clave: `lobbypms:${estado}`,
+      titulo: `LobbyPMS: API oficial no disponible (${estado})`,
+      detalle: `${explicar(estado)} [${resumirError(err)}]`,
+    });
     return null;
   }
 }
@@ -440,7 +449,19 @@ export async function consultarDisponibilidad(
 ): Promise<DisponibilidadCategoria[] | null> {
   const porDia = await consultarDisponibilidadPorDia(fechaEntradaISO, noches);
   if (porDia && porDia.length > 0) return agregarPorRango(porDia, Math.max(1, noches));
-  return consultarMotorPublico(fechaEntradaISO, noches);
+
+  const respaldo = await consultarMotorPublico(fechaEntradaISO, noches);
+  if (!respaldo) {
+    // [2026-09-13] Los DOS caminos fallaron: el bot se queda sin ninguna disponibilidad real
+    // para responder (ver el "no puedo confirmarte" que vio Daniel en pruebas) — esto es más
+    // grave que solo el oficial caído, así que es una clave de alerta aparte.
+    void alertarFalloTecnico({
+      clave: "lobbypms:ambos_caminos_fallaron",
+      titulo: "LobbyPMS: ni la API oficial ni el motor público respondieron",
+      detalle: `fecha=${fechaEntradaISO} noches=${noches} — el bot no tiene disponibilidad real para ofrecer en este momento.`,
+    });
+  }
+  return respaldo;
 }
 
 /** Una fecha de entrada que sí tiene cupo, con las categorías que le quedan libres. */

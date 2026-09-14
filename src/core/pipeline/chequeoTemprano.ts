@@ -1,5 +1,5 @@
 import { ultimaReservaDeCelular } from "../db/pagosRepo.js";
-import { confirmarBloqueo } from "../db/bloqueosRepo.js";
+import { finalizarPagoConfirmado } from "./confirmarReserva.js";
 import { verificarPagoEnBold } from "./verificarPagoEnBold.js";
 import { avisarPagoConfirmado } from "./avisarPago.js";
 import { cancelarLiberacion, cancelarChequeosTempranos, type BloqueoJob } from "../queue/bloqueoQueue.js";
@@ -21,7 +21,7 @@ import { cancelarLiberacion, cancelarChequeosTempranos, type BloqueoJob } from "
  * que, apenas se confirma un pago, se cancelan los chequeos que quedaran pendientes (ver
  * cancelarSeguimientoDePago), así que lo normal es que ni siquiera llegue a dispararse.
  */
-export async function ejecutarChequeoTemprano(job: BloqueoJob): Promise<void> {
+export async function ejecutarChequeoTemprano(job: BloqueoJob, minutoEnCurso?: number): Promise<void> {
   const key = `${job.canal}:${job.externalId}`;
 
   const reservaId = await ultimaReservaDeCelular(job.externalId);
@@ -52,7 +52,18 @@ export async function ejecutarChequeoTemprano(job: BloqueoJob): Promise<void> {
 
   // Dentro de la ventana del bloqueo el cupo sigue firme (todavía no se soltó ni pudo tomarlo
   // otro cliente) — a diferencia de bloqueo.ts, acá no hace falta re-verificar LobbyPMS.
-  await confirmarBloqueo(job.bloqueoId);
+  //
+  // [2026-09-14] Antes acá solo se marcaba el bloqueo como confirmado en NUESTRA base, y la
+  // reserva real en LobbyPMS nunca se creaba por este camino (solo con el /confirmar manual del
+  // equipo) — el cliente quedaba confirmado y el calendario de La Julita, vacío. Ahora se cierra
+  // todo junto, igual que en los demás caminos (ver confirmarReserva.ts).
+  await finalizarPagoConfirmado({
+    bloqueoId: job.bloqueoId,
+    canal: job.canal,
+    externalId: job.externalId,
+    reservaId,
+    origen: "chequeo-temprano",
+  });
 
   if (!verificacion.yaEstabaRegistrado) {
     await avisarPagoConfirmado({
@@ -67,6 +78,8 @@ export async function ejecutarChequeoTemprano(job: BloqueoJob): Promise<void> {
   // Ya quedó resuelto: ni el otro chequeo temprano ni la liberación de los BLOQUEO_MINUTOS tienen
   // ya nada que hacer — de lo contrario, a los 10 minutos se le volvería a preguntar a Bold algo
   // que ya sabemos.
+  // `minutoEnCurso` es el de ESTE chequeo: se saltea al cancelar, porque un job no puede
+  // borrarse a sí mismo mientras corre (BullMQ lo tiene tomado). Ver cancelarChequeosTempranos.
   await cancelarLiberacion(job.bloqueoId);
-  await cancelarChequeosTempranos(job.bloqueoId);
+  await cancelarChequeosTempranos(job.bloqueoId, minutoEnCurso);
 }

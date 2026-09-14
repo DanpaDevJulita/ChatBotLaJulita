@@ -6,6 +6,7 @@ import { crearBloqueo, type ClaseDomoBloqueo } from "../../../core/db/bloqueosRe
 import { programarLiberacion, programarChequeosTempranos, BLOQUEO_MINUTOS } from "../../../core/queue/bloqueoQueue.js";
 import { resolverCategoryId, crearBlockLobby, sumarDias } from "../../../core/integrations/lobbypms.js";
 import type { ToolContext } from "../../../core/tools/types.js";
+import { recordarReservaActiva } from "../../../core/db/conversacionActivaRepo.js";
 
 function formatMoney(n: number): string {
   return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n);
@@ -60,7 +61,7 @@ export const registrarDatosReservaTool: ToolDefinition = {
   name: "registrar_datos_reserva",
   permitirRedaccion: true,
   description:
-    "Guarda los datos para dejar la reserva registrada: quien reserva (nombre completo, tipo y número de documento, celular y correo opcional) y CADA acompañante (nombre completo, tipo y número de documento). Si el plan es familiar o de amigos, pedile TAMBIÉN la edad de cada acompañante antes de llamar esta herramienta (hace falta para saber cuántos son adultos y cuántos niños) — en cualquier otro plan no hace falta. Llamala solo cuando ya tengas el plan elegido, la fecha, cuántas personas son y los datos de todos los huéspedes. Si falta algún dato te dice cuál pedir. En planes familiares hay un cupo real: hasta 3 personas si todas son adultas, o hasta 2 adultos y 2 niños (4 en total) — si no alcanza, te lo dice para que ofrezcas otra opción. Cuando devuelva ok con un reserva_id, llamá ENSEGUIDA a preguntar_forma_de_pago con ese reserva_id, en el mismo turno y sin escribirle nada al cliente en el medio: ese es el mensaje que recibe, con las dos opciones de pago (abono del 50% o total) y sus montos. El link va después, cuando el cliente elija. Llamala UNA sola vez por reserva: si ya la llamaste en esta conversación, no la vuelvas a llamar ni le pidas los datos otra vez.",
+    "Guarda los datos para dejar la reserva registrada: quien reserva (nombre completo, tipo y número de documento, celular y correo opcional) y CADA acompañante (nombre completo, tipo y número de documento). Si el plan es familiar o de amigos, pídele TAMBIÉN la edad de cada acompañante antes de llamar esta herramienta (hace falta para saber cuántos son adultos y cuántos niños) — en cualquier otro plan no hace falta. Llámala solo cuando ya tengas el plan elegido, la fecha, cuántas personas son y los datos de todos los huéspedes. Si falta algún dato te dice cuál pedir. En planes familiares hay un cupo real: hasta 3 personas si todas son adultas, o hasta 2 adultos y 2 niños (4 en total) — si no alcanza, te lo dice para que ofrezcas otra opción. Cuando devuelva ok con un reserva_id, llama ENSEGUIDA a preguntar_forma_de_pago con ese reserva_id, en el mismo turno y sin escribirle nada al cliente en el medio: ese es el mensaje que recibe, con las dos opciones de pago (abono del 50% o total) y sus montos. El link va después, cuando el cliente elija. Llámala UNA sola vez por reserva: si ya la llamaste en esta conversación, no la vuelvas a llamar ni le pidas los datos otra vez.",
   parameters: {
     type: "object",
     properties: {
@@ -303,7 +304,7 @@ export const registrarDatosReservaTool: ToolDefinition = {
           // un par de chequeos de paso a Bold mientras el cupo sigue apartado (ver bloqueoQueue.ts).
           await programarChequeosTempranos(bloqueo.id, ctx.channel, ctx.externalId);
           avisoBloqueo =
-            `\n\n⏳ Te dejo apartado este cupo por ${BLOQUEO_MINUTOS} minutos mientras confirmás el pago — ` +
+            `\n\n⏳ Te dejo apartado este cupo por ${BLOQUEO_MINUTOS} minutos mientras confirmas el pago — ` +
             "si pasa ese tiempo sin confirmación, se libera automáticamente y podría tomarlo otro cliente.";
         }
       }
@@ -335,6 +336,15 @@ export const registrarDatosReservaTool: ToolDefinition = {
           ? `Anoté también los datos de ${acompanantes.length} acompañante(s). `
           : "";
 
+    // [2026-09-13] Se guarda ACÁ, no en pago.ts: es el único lugar del código que sabe con
+    // certeza qué reserva le corresponde a esta conversación (ctx.channel/ctx.externalId), sin
+    // depender de que el modelo repita bien el reserva_id en los turnos que siguen. Ver
+    // conversacionActivaRepo.ts para el porqué completo (bug real del 2026-09-13: un reserva_id
+    // viejo, de otra conversación, terminó cobrándole a un cliente el monto de OTRO).
+    if (resultado.reserva_id) {
+      await recordarReservaActiva(ctx.channel, ctx.externalId, resultado.reserva_id);
+    }
+
     return {
       result: {
         ok: true,
@@ -347,8 +357,8 @@ export const registrarDatosReservaTool: ToolDefinition = {
         // cobrar: pedirle los datos otra vez al cliente NO arregla nada (ya los dio), hay que
         // pasarlo al equipo.
         siguiente_paso: resultado.reserva_id
-          ? "Llamá preguntar_forma_de_pago con este reserva_id AHORA, en este mismo turno, sin escribirle nada al cliente antes. NO llames enviar_datos_pago todavía: el cliente primero tiene que elegir si abona el 50% o paga el total."
-          : "No se pudo crear la reserva en la base: NO vuelvas a pedir los datos. Decile al cliente que el equipo le confirma el cupo y los datos de pago en un momento.",
+          ? "Llama preguntar_forma_de_pago con este reserva_id AHORA, en este mismo turno, sin escribirle nada al cliente antes. NO llames enviar_datos_pago todavía: el cliente primero tiene que elegir si abona el 50% o paga el total."
+          : "No se pudo crear la reserva en la base: NO vuelvas a pedir los datos. Dile al cliente que el equipo le confirma el cupo y los datos de pago en un momento.",
         cliente_id: resultado.cliente_id,
         acompanantes_registrados: resultado.acompanantes_registrados,
         acompanantes_recibidos: acompanantes.length,

@@ -32,10 +32,20 @@ const TABLAS: Record<string, Fila[]> = {
   acompanantes: [],
   pagos: [],
   v_estado_cuenta: [],
+  politicas: [],
+  alertas_tecnicas: [],
 };
 
+/**
+ * Las filas de una tabla, para sembrarlas o revisarlas desde una prueba.
+ *
+ * [2026-09-13] Crea la tabla si no existía (`??=`). Antes devolvía `TABLAS[tabla] ?? []`: con
+ * una tabla nueva eso entregaba un arreglo SUELTO, así que la prueba sembraba datos en un
+ * objeto que la base falsa nunca miraba, y el caso fallaba como si el código estuviera mal.
+ * Pasó al agregar `politicas`.
+ */
 export function filasDe(tabla: string): Fila[] {
-  return TABLAS[tabla] ?? [];
+  return (TABLAS[tabla] ??= []);
 }
 
 export function sembrarMensajes(filas: Fila[]): void {
@@ -96,6 +106,29 @@ export function sembrarReservaParaCobrar(params: {
   rpcsLlamados.length = 0;
 }
 
+/**
+ * [2026-09-13] Fallas de lectura a pedido, para probar el "Gateway Timeout" de Supabase que se
+ * vio varias veces en producción: cuántas lecturas seguidas debe fallar cada tabla. Cada lectura
+ * fallida descuenta uno, así se puede pedir "que falle una sola vez" (y el reintento la salve) o
+ * "que falle siempre" (y entre a jugar el último dato bueno). Ver leerCatalogo en catalogoRepo.ts.
+ */
+const fallasPendientes = new Map<string, number>();
+
+export function simularFallaDeLectura(tabla: string, veces: number, mensaje = "Gateway Timeout"): void {
+  if (veces <= 0) fallasPendientes.delete(tabla);
+  else fallasPendientes.set(tabla, veces);
+  mensajeDeFalla = mensaje;
+}
+let mensajeDeFalla = "Gateway Timeout";
+
+/** true si a esta tabla le toca fallar en esta lectura (y consume una de las fallas pedidas). */
+function tocaFallar(tabla: string): boolean {
+  const quedan = fallasPendientes.get(tabla) ?? 0;
+  if (quedan <= 0) return false;
+  fallasPendientes.set(tabla, quedan - 1);
+  return true;
+}
+
 class Consulta {
   private filtros: [string, any][] = [];
   private comodines: [string, string][] = [];
@@ -135,22 +168,49 @@ class Consulta {
     return filas;
   }
 
-  async maybeSingle() { return { data: this.resolver()[0] ?? null, error: null }; }
+  async maybeSingle() {
+    if (tocaFallar(this.tabla)) return { data: null, error: { message: mensajeDeFalla } };
+    return { data: this.resolver()[0] ?? null, error: null };
+  }
   async single() { const f = this.resolver()[0]; return { data: f ?? null, error: f ? null : { message: "no rows" } }; }
   then(ok: (r: any) => any, mal?: (e: any) => any) {
+    // Falla simulada de lectura (ver simularFallaDeLectura): devuelve el mismo `{data, error}`
+    // que devolvería Supabase con un 504, para que el código de producción la maneje igual.
+    if (tocaFallar(this.tabla)) return Promise.resolve(ok({ data: null, error: { message: mensajeDeFalla } }));
     try { return Promise.resolve(ok({ data: this.resolver(), error: null })); }
     catch (e) { return mal ? Promise.resolve(mal(e)) : Promise.reject(e); }
   }
 }
 
+/**
+ * Columnas que identifican una fila para efectos de `upsert` — igual que la restricción única /
+ * primary key que tiene la tabla real en Supabase. Sin esto, un `upsert` en la base falsa no
+ * tenía forma de saber que dos llamadas eran "la misma fila": simplemente apilaba una fila nueva
+ * cada vez (bien para `insert`, mal para `upsert`), y una prueba que hiciera dos upserts sobre la
+ * MISMA clave (ej. alertar dos veces por la misma falla técnica) terminaba viendo DOS filas donde
+ * el código real solo dejaría una — un caso real que encontró `e2e-alerta-tecnica.ts` (2026-09-13).
+ */
+const CLAVES_UPSERT: Record<string, string[]> = {
+  estado_conversacion: ["canal", "external_id"],
+  alertas_tecnicas: ["clave"],
+};
+
 class Escritura {
-  constructor(private tabla: string, private filas: Fila[]) {}
+  constructor(private tabla: string, private filas: Fila[], private esUpsert = false) {}
   select() { return this; }
   eq() { return this; }
   async single() { return { data: this.filas[0] ?? null, error: null }; }
   then(ok: (r: any) => any) {
     const destino = (TABLAS[this.tabla] ??= []);
-    for (const f of this.filas) destino.push({ ...f, created_at: f.created_at ?? new Date().toISOString() });
+    const claves = this.esUpsert ? CLAVES_UPSERT[this.tabla] : null;
+    for (const f of this.filas) {
+      const existente = claves ? destino.find((d) => claves.every((c) => d[c] === f[c])) : undefined;
+      if (existente) {
+        Object.assign(existente, f);
+      } else {
+        destino.push({ ...f, created_at: f.created_at ?? new Date().toISOString() });
+      }
+    }
     return Promise.resolve(ok({ data: this.filas, error: null }));
   }
 }
@@ -163,7 +223,7 @@ export function instalarSupabaseFalso(): void {
   (supabase as any).from = (tabla: string) => ({
     select: (..._a: any[]) => new Consulta(tabla),
     insert: (filas: Fila | Fila[]) => new Escritura(tabla, Array.isArray(filas) ? filas : [filas]),
-    upsert: (filas: Fila | Fila[]) => new Escritura(tabla, Array.isArray(filas) ? filas : [filas]),
+    upsert: (filas: Fila | Fila[]) => new Escritura(tabla, Array.isArray(filas) ? filas : [filas], true),
     update: (cambios: Fila) => {
       // Soporta la cadena completa que usa el código real:
       //   .update({...}).eq(a,1).eq(b,"x").select().single()
@@ -297,6 +357,20 @@ let lobbyBlockOk = true;
 export const consultasDisponibilidadLobby: number[] = [];
 export const bloqueosCreadosLobby: any[] = [];
 
+/**
+ * [2026-09-14] Reservas REALES creadas en LobbyPMS (POST /bookings) y bloqueos liberados
+ * (DELETE /block/:id). Se agregaron para poder probar, sin un pago real, el agujero que encontró
+ * Daniel el 13/09: el bot confirmaba la reserva y en LobbyPMS no quedaba nada creado.
+ */
+export const reservasCreadasLobby: any[] = [];
+export const blocksLiberadosLobby: number[] = [];
+let lobbyBookingOk = true;
+
+/** Simula que LobbyPMS NO puede crear la reserva (para probar el aviso al equipo). */
+export function lobbyResponderaBooking(ok: boolean): void {
+  lobbyBookingOk = ok;
+}
+
 /** `[5]` = siempre hay 5 libres. `[null, null, 4]` = falla dos veces y a la tercera dice 4 libres. */
 export function lobbyResponderaDisponibilidad(secuencia: (number | null)[]): void {
   lobbyDisponibilidadEnCola = [...secuencia];
@@ -310,8 +384,11 @@ export function lobbyResponderaBlock(ok: boolean): void {
 export function instalarLobbyFalso(): void {
   lobbyDisponibilidadEnCola = [5];
   lobbyBlockOk = true;
+  lobbyBookingOk = true;
   consultasDisponibilidadLobby.length = 0;
   bloqueosCreadosLobby.length = 0;
+  reservasCreadasLobby.length = 0;
+  blocksLiberadosLobby.length = 0;
 
   (axios as any).get = async (url: string, config: any) => {
     if (String(url).includes("/available-rooms")) {
@@ -347,10 +424,28 @@ export function instalarLobbyFalso(): void {
       // la API oficial "falla" (ver arriba), esto solo tiene que devolver "nada", no explotar.
       return { data: { roomCategories: {}, roomNoAvailable: {} } };
     }
+    // [2026-09-14] Cliente en LobbyPMS (se crea/actualiza antes de la reserva).
+    if (String(url).includes("/customer/")) {
+      return { data: { ok: true } };
+    }
+    // [2026-09-14] La reserva REAL. Lo que antes NUNCA se llamaba por los caminos automáticos.
+    if (String(url).includes("/bookings")) {
+      reservasCreadasLobby.push(body);
+      if (!lobbyBookingOk) {
+        const err: any = new Error("Request failed with status code 400");
+        err.response = { status: 400, data: { message: "no se pudo crear la reserva" } };
+        throw err;
+      }
+      return { data: { data: [{ idBooking: 55501, idRoom: 12 }] } };
+    }
     throw new Error(`[lobbyFalso] POST no simulado en la prueba: ${url}`);
   };
 
-  (axios as any).delete = async (_url: string) => ({ data: { ok: true } });
+  (axios as any).delete = async (url: string) => {
+    const m = String(url).match(/\/block\/(\d+)/);
+    if (m) blocksLiberadosLobby.push(Number(m[1]));
+    return { data: { ok: true } };
+  };
 }
 
 // --- Modelo guionado ----------------------------------------------------------------------

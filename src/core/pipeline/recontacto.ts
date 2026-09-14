@@ -60,12 +60,12 @@ export async function ejecutarRecontacto(job: RecontactoJob, adapter: ChannelAda
         {
           role: "system",
           content: esUltimo
-            ? "Este es el ÚLTIMO recontacto de la cadena: podés darle un toque más de urgencia, sin inventar fechas límite y sin presionar feo."
+            ? "Este es el ÚLTIMO recontacto de la cadena: puedes darle un toque más de urgencia, sin inventar fechas límite y sin presionar feo."
             : "Este es un recontacto intermedio: liviano y casual, sin presión.",
         },
         {
           role: "user",
-          content: transcripcion || "No hay contexto previo: saludá con calidez y ofrecé ayuda con los planes.",
+          content: transcripcion || "No hay contexto previo: saluda con calidez y ofrece ayuda con los planes.",
         },
       ] as any,
       temperature: 0.6,

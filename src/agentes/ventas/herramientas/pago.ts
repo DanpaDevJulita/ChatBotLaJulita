@@ -11,8 +11,12 @@ import {
   type TipoPago,
 } from "../../../core/db/pagosRepo.js";
 import { bloqueoPendienteDe } from "../../../core/db/bloqueosRepo.js";
+import { politica, politicasUnidas } from "../../../core/db/politicasRepo.js";
+import { reservaActivaDe } from "../../../core/db/conversacionActivaRepo.js";
+import { alertarFalloTecnico } from "../../../core/pipeline/notificarDesarrollo.js";
+import { notificarEscalamiento } from "../../../core/pipeline/notificarEquipo.js";
 import { verificarPagoEnBold } from "../../../core/pipeline/verificarPagoEnBold.js";
-import { cancelarSeguimientoDePago } from "../../../core/queue/bloqueoQueue.js";
+import { finalizarPagoConfirmado } from "../../../core/pipeline/confirmarReserva.js";
 import {
   crearLinkDePago,
   construirReference,
@@ -138,6 +142,51 @@ async function conseguirLink(
 const DERIVAR_AL_EQUIPO =
   "Déjame confirmar un detalle del pago con el equipo de La Julita y en un momento te paso los datos 🙏";
 
+/**
+ * [2026-09-14] Derivar al equipo DE VERDAD.
+ *
+ * Daniel, viendo una conversación real: "no me gustan estos mensajes donde dice que va a
+ * consultar algo con el equipo... solo se debe comunicar al equipo si algo falla o es muy muy
+ * necesario". Y tenía razón por partida doble, porque además ese mensaje era una promesa vacía:
+ * le decía al cliente "en un momento te paso los datos" y NO avisaba a nadie — ni al equipo de
+ * ventas ni al técnico. El cliente quedaba esperando algo que nunca iba a llegar (en su prueba,
+ * al día siguiente el recontacto le volvió a preguntar y cayó en el mismo mensaje otra vez).
+ *
+ * Ahora, cada vez que se usa este mensaje:
+ *   - le llega un WhatsApp al equipo de ventas con el caso, para que respondan ellos;
+ *   - queda un aviso técnico (es siempre una falla interna: sin estado de cuenta, Bold sin
+ *     configurar, un link que no se pudo crear...).
+ *
+ * Y se usa MUCHO MENOS que antes: los casos que el bot puede resolver solo (por ejemplo "ya
+ * abonaste, esto es lo que queda y así se paga") ya no pasan por acá.
+ */
+async function derivarAlEquipo(params: {
+  motivo: string;
+  detalleTecnico: string;
+  clave: string;
+  ctx: ToolContext;
+  reservaId?: number | null;
+}): Promise<string> {
+  const { motivo, detalleTecnico, clave, ctx, reservaId } = params;
+
+  console.error(`[pagos] derivo al equipo (${motivo}) — ${ctx.channel}:${ctx.externalId}: ${detalleTecnico}`);
+
+  void notificarEscalamiento({
+    canalCliente: ctx.channel,
+    externalIdCliente: ctx.externalId,
+    motivo: `El bot no pudo continuar con el pago${reservaId ? ` de la reserva #${reservaId}` : ""}: ${motivo}`,
+    mensajeCliente: "(el cliente está esperando los datos de pago)",
+  });
+
+  void alertarFalloTecnico({
+    clave: `pagos:${clave}`,
+    titulo: `Pagos: el bot tuvo que derivar un cobro al equipo (${motivo})`,
+    detalle: `${ctx.channel}:${ctx.externalId}${reservaId ? `, reserva #${reservaId}` : ""} — ${detalleTecnico}`,
+  });
+
+  return DERIVAR_AL_EQUIPO;
+}
+
 const MESES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
@@ -203,12 +252,34 @@ interface CobroImposible {
 
 async function reunirDatosDeCobro(
   reservaIdPedido: number | undefined,
-  ctx: ToolContext
+  ctx: ToolContext,
+  /**
+   * [2026-09-14] true cuando el cliente pidió EXPRESAMENTE pagar el saldo ahora. Sirve para no
+   * cortarle el paso con el mensaje de "ya abonaste, el saldo se paga así" (ver más abajo): en
+   * ese caso sí hay que seguir y generarle el link del saldo.
+   */
+  quierePagarElSaldoAhora = false
 ): Promise<DatosDeCobro | CobroImposible> {
   // --- 1. De qué reserva estamos hablando ---
+  // [2026-09-13] Bug real ese mismo día: en una conversación larga (varias reservas de prueba
+  // seguidas en el mismo chat) el modelo llamó a esta herramienta con un `reserva_id` VIEJO, de
+  // otra reserva ya registrada antes en la misma charla — y como esa reserva vieja tenía un link
+  // pendiente sin pagar, `conseguirLink` lo reusó tal cual: el cliente recibió el link de OTRA
+  // reserva, por OTRO monto. `reservaActivaDe` es la reserva que ESTA conversación registró de
+  // verdad (la guarda registrar_datos_reserva, con el mismo channel/externalId de siempre) — es
+  // más confiable que un número que el modelo tiene que acordarse de repetir turno tras turno,
+  // así que manda ella cuando existe: si el modelo pidió otra cosa, se ignora y se avisa en el
+  // log (nunca al cliente, que no tiene por qué notar el detalle interno).
+  const reservaDeEstaConversacion = await reservaActivaDe(ctx.channel, ctx.externalId);
   let reservaId = Number(reservaIdPedido) || null;
-  if (!reservaId) {
-    reservaId = await ultimaReservaDeCelular(ctx.externalId);
+  if (reservaDeEstaConversacion && reservaId && reservaId !== reservaDeEstaConversacion) {
+    console.warn(
+      `[pagos] el modelo pidió reserva_id=${reservaId} pero esta conversación (${ctx.channel}:` +
+        `${ctx.externalId}) registró la #${reservaDeEstaConversacion} — uso la de la conversación.`
+    );
+    reservaId = reservaDeEstaConversacion;
+  } else if (!reservaId) {
+    reservaId = reservaDeEstaConversacion ?? (await ultimaReservaDeCelular(ctx.externalId));
   }
 
   if (!reservaId) {
@@ -230,7 +301,12 @@ async function reunirDatosDeCobro(
           para_el_modelo:
             "NO le pidas los datos al cliente otra vez ni vuelvas a llamar a registrar_datos_reserva: ya los dio.",
         },
-        reply_to_user: DERIVAR_AL_EQUIPO,
+        reply_to_user: await derivarAlEquipo({
+          motivo: "no se identificó la reserva",
+          clave: "sin_reserva",
+          detalleTecnico: "no apareció ninguna reserva ni por reserva_id ni por celular (¿se creó la fila en `reservas`?)",
+          ctx,
+        }),
       },
     };
   }
@@ -239,12 +315,34 @@ async function reunirDatosDeCobro(
   const cuenta: EstadoCuenta | null = await obtenerEstadoCuenta(reservaId);
   if (!cuenta) {
     console.error(`[pagos] No hay estado de cuenta para la reserva #${reservaId}`);
-    return { fallo: { result: { ok: false, motivo: "sin estado de cuenta" }, reply_to_user: DERIVAR_AL_EQUIPO } };
+    return {
+      fallo: {
+        result: { ok: false, motivo: "sin estado de cuenta" },
+        reply_to_user: await derivarAlEquipo({
+          motivo: "la reserva no tiene estado de cuenta",
+          clave: "sin_estado_cuenta",
+          detalleTecnico: "v_estado_cuenta no devolvió nada para esta reserva",
+          ctx,
+          reservaId,
+        }),
+      },
+    };
   }
 
   if (cuenta.total <= 0) {
     console.error(`[pagos] La reserva #${reservaId} no tiene valor cargado (total = ${cuenta.total})`);
-    return { fallo: { result: { ok: false, motivo: "reserva sin valor" }, reply_to_user: DERIVAR_AL_EQUIPO } };
+    return {
+      fallo: {
+        result: { ok: false, motivo: "reserva sin valor" },
+        reply_to_user: await derivarAlEquipo({
+          motivo: "la reserva no tiene valor cargado",
+          clave: "reserva_sin_valor",
+          detalleTecnico: `total = ${cuenta.total}`,
+          ctx,
+          reservaId,
+        }),
+      },
+    };
   }
 
   if (cuenta.saldo <= 0) {
@@ -254,6 +352,40 @@ async function reunirDatosDeCobro(
         reply_to_user:
           `Tu reserva #${reservaId} ya figura sin saldo pendiente 🙌 ` +
           "Si necesitas el soporte del pago, el equipo de La Julita te lo hace llegar.",
+      },
+    };
+  }
+
+  // [2026-09-14] El cliente YA abonó y solo le queda el saldo. Esto NO es un caso para derivar al
+  // equipo: es la pregunta más común después de pagar ("¿y el resto?"), y el bot tiene el dato
+  // exacto y la política escrita para contestarla solo.
+  //
+  // Antes se seguía de largo hacia la generación de un link nuevo, y cuando eso fallaba (el abono
+  // ya está pagado, así que crear otro pago del mismo tipo se rechaza) el cliente terminaba
+  // recibiendo el "déjame confirmar un detalle del pago con el equipo" — y al día siguiente el
+  // recontacto le volvía a preguntar y caía en el mismo mensaje. Bucle real, visto en la prueba
+  // de Daniel del 13/09.
+  if (cuenta.pagado > 0 && !quierePagarElSaldoAhora) {
+    const cuandoSePagaElSaldo = await politica("saldo_pendiente");
+    const nombre = primerNombre(cuenta.cliente);
+    const saludo = nombre ? `${nombre}, ` : "";
+    return {
+      fallo: {
+        result: {
+          ok: true,
+          reserva_id: reservaId,
+          ya_abonado: cuenta.pagado,
+          saldo: cuenta.saldo,
+          para_el_modelo:
+            "El cliente ya abonó. NO hay que generar otro link ni derivar nada al equipo: el saldo " +
+            "se paga como dice la política. Si el cliente pide expresamente pagar el saldo AHORA, " +
+            "llama enviar_datos_pago con modalidad \"total\".",
+        },
+        reply_to_user:
+          `${saludo}ya tienes abonado ${formatMoney(cuenta.pagado)} de tu reserva 💚 ` +
+          `Queda un saldo de ${formatMoney(cuenta.saldo)}.\n\n` +
+          (cuandoSePagaElSaldo ? `${cuandoSePagaElSaldo}\n\n` : "") +
+          "Si prefieres dejarlo pago desde ya, dime y te paso el link 🙌",
       },
     };
   }
@@ -332,7 +464,7 @@ export const preguntarFormaDePagoTool: ToolDefinition = {
   name: "preguntar_forma_de_pago",
   permitirRedaccion: false,
   description:
-    "Le pregunta al cliente si quiere abonar el 50% para apartar la fecha o pagar el valor total, mostrándole los DOS montos exactos. Llamala SIEMPRE justo después de que registrar_datos_reserva devuelva ok con un reserva_id, y también cuando el cliente diga que quiere pagar pero todavía no haya elegido entre abono y total. Es el paso previo OBLIGATORIO a enviar_datos_pago: el link sale con el valor ya fijado, así que primero el cliente tiene que elegir. NO calcules vos los montos ni los repitas: esta herramienta los manda tal cual.",
+    "Le pregunta al cliente si quiere abonar el 50% para apartar la fecha o pagar el valor total, mostrándole los DOS montos exactos. Llámala SIEMPRE justo después de que registrar_datos_reserva devuelva ok con un reserva_id, y también cuando el cliente diga que quiere pagar pero todavía no haya elegido entre abono y total. Es el paso previo OBLIGATORIO a enviar_datos_pago: el link sale con el valor ya fijado, así que primero el cliente tiene que elegir. NO calcules tú los montos ni los repitas: esta herramienta los manda tal cual.",
   parameters: {
     type: "object",
     properties: {
@@ -365,9 +497,9 @@ export const preguntarFormaDePagoTool: ToolDefinition = {
         siguiente_paso:
           "Espera la respuesta del cliente, que va a venir con sus palabras (no con un número): " +
           '"el 50", "abono", "aparto la fecha" -> modalidad="abono"; "completa", "todo", "pago total", ' +
-          '"la dejo paga" -> modalidad="total". Con eso llamá enviar_datos_pago con este mismo reserva_id. ' +
-          'Si contesta algo que no aclara cuál quiere ("sí", "dale", "ok"), volvé a preguntárselo con ' +
-          "naturalidad — NO elijas vos por él.",
+          '"la dejo paga" -> modalidad="total". Con eso llama enviar_datos_pago con este mismo reserva_id. ' +
+          'Si contesta algo que no aclara cuál quiere ("sí", "dale", "ok"), vuelve a preguntárselo con ' +
+          "naturalidad — NO elijas tú por él.",
       },
       reply_to_user: textoDeLaPregunta(datos, encabezado, minutos),
     };
@@ -379,7 +511,7 @@ export const enviarDatosPagoTool: ToolDefinition = {
   // El texto va LITERAL: montos y links no se reformulan.
   permitirRedaccion: false,
   description:
-    "Manda el link de pago de una reserva ya registrada, CON EL VALOR YA FIJADO. Solo se llama DESPUÉS de que el cliente eligió entre abonar el 50% o pagar el total (se lo pregunta preguntar_forma_de_pago): pasale modalidad=\"abono\" o modalidad=\"total\" según lo que el cliente haya dicho EXPLÍCITAMENTE en el chat. Si todavía no eligió, no la llames — llamá preguntar_forma_de_pago. Nunca adivines la modalidad. Pasale también el reserva_id que devolvió registrar_datos_reserva. NO confirma pagos ni dice que una reserva quedó pagada: eso lo verifica el equipo.",
+    "Manda el link de pago de una reserva ya registrada, CON EL VALOR YA FIJADO. Solo se llama DESPUÉS de que el cliente eligió entre abonar el 50% o pagar el total (se lo pregunta preguntar_forma_de_pago): pásale modalidad=\"abono\" o modalidad=\"total\" según lo que el cliente haya dicho EXPLÍCITAMENTE en el chat. Si todavía no eligió, no la llames — llama preguntar_forma_de_pago. Nunca adivines la modalidad. Pásale también el reserva_id que devolvió registrar_datos_reserva. NO confirma pagos ni dice que una reserva quedó pagada: eso lo verifica el equipo.",
   parameters: {
     type: "object",
     properties: {
@@ -398,7 +530,10 @@ export const enviarDatosPagoTool: ToolDefinition = {
     required: ["modalidad"],
   },
   handler: async (args: { reserva_id?: number; modalidad?: string }, ctx: ToolContext) => {
-    const datos = await reunirDatosDeCobro(args?.reserva_id, ctx);
+    // `modalidad: "total"` sobre una reserva que YA tiene abono significa "quiero pagar el saldo
+    // ahora" — ahí sí se le genera el link, en vez de contestarle cuándo se paga (ver
+    // reunirDatosDeCobro).
+    const datos = await reunirDatosDeCobro(args?.reserva_id, ctx, args?.modalidad === "total");
     if ("fallo" in datos) return datos.fallo;
 
     const { reservaId, cuenta, saldo, anticipo } = datos;
@@ -420,7 +555,7 @@ export const enviarDatosPagoTool: ToolDefinition = {
           ok: false,
           motivo: "el cliente todavía no eligió cómo pagar",
           opciones: { abono: anticipo, total: saldo },
-          siguiente_paso: "Espera que el cliente elija y recién ahí llamá esta herramienta con la modalidad.",
+          siguiente_paso: "Espera que el cliente elija y recién ahí llama esta herramienta con la modalidad.",
         },
         reply_to_user: textoDeLaPregunta(datos, encabezado, minutosAhora),
       };
@@ -428,7 +563,21 @@ export const enviarDatosPagoTool: ToolDefinition = {
 
     if (!boldConfigured) {
       console.error("[enviar_datos_pago] Falta BOLD_API_KEY: no se pueden generar links de pago.");
-      return { result: { ok: false, motivo: "bold sin configurar" }, reply_to_user: DERIVAR_AL_EQUIPO };
+      void alertarFalloTecnico({
+        clave: "bold:sin_configurar",
+        titulo: "Bold: falta BOLD_API_KEY, no se pueden generar links de pago",
+        detalle: `reserva #${reservaId} — un cliente llegó al paso de pago y el bot no pudo generarle el link.`,
+      });
+      return {
+        result: { ok: false, motivo: "bold sin configurar" },
+        reply_to_user: await derivarAlEquipo({
+          motivo: "Bold no está configurado",
+          clave: "bold_sin_configurar",
+          detalleTecnico: "falta BOLD_API_KEY en el .env",
+          ctx,
+          reservaId,
+        }),
+      };
     }
 
     // --- El link, con el monto YA FIJADO segun lo que eligio el cliente ---
@@ -463,13 +612,42 @@ export const enviarDatosPagoTool: ToolDefinition = {
 
     if ("error" in link) {
       console.error(`[enviar_datos_pago] reserva #${reservaId}: ${link.error}`);
-      return { result: { ok: false, motivo: "no se pudo generar el link" }, reply_to_user: DERIVAR_AL_EQUIPO };
+      void alertarFalloTecnico({
+        clave: "bold:no_genero_link",
+        titulo: "Bold: falló al generar un link de pago",
+        detalle: `reserva #${reservaId}, modalidad "${modalidad}": ${link.error}`,
+      });
+      return {
+        result: { ok: false, motivo: "no se pudo generar el link" },
+        reply_to_user: await derivarAlEquipo({
+          motivo: "no se pudo generar el link de pago",
+          clave: "link_fallido",
+          detalleTecnico: link.error,
+          ctx,
+          reservaId,
+        }),
+      };
     }
 
     // --- El mensaje, exacto ---
     const { texto: encabezado, nombre, resumen } = await encabezadoDeReserva(datos);
     const minutos = await minutosDeCupoApartado(ctx.channel, ctx.externalId);
     const saludo = nombre ? `¡Perfecto, ${nombre}! 💚 ` : "¡Perfecto! 💚 ";
+
+    // [2026-09-13] Las políticas salen de la tabla `politicas` (ver sql/politicas.sql). Antes acá
+    // decía "se pagan según las condiciones del plan, así que de eso hablamos más adelante" —
+    // Daniel pidió que el cliente vea las condiciones REALES antes de pagar, no después. Si la
+    // base no las tiene cargadas, el bloque simplemente no sale: el link es lo que no se puede
+    // perder, y una condición inventada sería peor que ninguna.
+    const bloquePoliticas =
+      modalidad === "abono"
+        ? await politicasUnidas(["saldo_pendiente", "cambios_corta"])
+        : await politica("cambios_corta");
+
+    const introPoliticas =
+      modalidad === "abono"
+        ? `Los otros ${formatMoney(saldo - montoDelLink)} quedan pendientes y se pagan según nuestras políticas de reserva:`
+        : "Antes de pagar, ten en cuenta nuestras políticas de reserva:";
 
     // [2026-09-11] Escrito como un mensaje de una persona, no como un comprobante: sin menús ni
     // etiquetas entre paréntesis. El monto ya va fijado en el link, así que se lo decimos con
@@ -479,14 +657,14 @@ export const enviarDatosPagoTool: ToolDefinition = {
       `de ${formatMoney(montoDelLink)}:\n\n` +
       `${link.url}\n\n` +
       "Ya va con el valor puesto, así que solo tienes que confirmarlo 🙌\n\n" +
-      (modalidad === "abono"
-        ? `Los otros ${formatMoney(saldo - montoDelLink)} quedan pendientes y se pagan según las condiciones ` +
-          "del plan, así que de eso hablamos más adelante.\n\n"
-        : "") +
+      (bloquePoliticas ? `${introPoliticas}\n\n${bloquePoliticas}\n\n` : "") +
       (minutos
         ? `⏳ El cupo te queda apartado por ${minutos} ${minutos === 1 ? "minuto" : "minutos"} mientras confirmas el pago.\n\n`
         : "") +
-      "Apenas pagues, mándame el comprobante y el equipo de La Julita confirma tu reserva 💚";
+      // [2026-09-13] Ya no se le pide el comprobante: el bot le pregunta a Bold solo (webhook +
+      // los chequeos de los 3 y 7 minutos, ver core/queue/bloqueoQueue.ts). Pedirlo contradecía
+      // la regla que el propio prompt le da al agente ("nunca le pidas el comprobante").
+      "Apenas pagues yo lo veo de mi lado y te confirmo la reserva por acá 💚";
 
     return {
       result: {
@@ -531,14 +709,14 @@ export const verificarPagoTool: ToolDefinition = {
   name: "verificar_pago",
   permitirRedaccion: false,
   description:
-    "Le pregunta a Bold, en vivo, si el pago de una reserva ya entró. Llamala SIEMPRE que el cliente diga que ya pagó, que hizo la transferencia, que mandó el comprobante, o pregunte si ya le llegó el pago — ANTES de pedirle cualquier comprobante o de decirle que el equipo verifica. Pasale el reserva_id si lo tenés; si no, se busca por el celular de quien escribe. Si el pago entró, esta herramienta lo deja registrado y le confirma la reserva al cliente. NO le pidas el comprobante: para eso está esta herramienta.",
+    "Le pregunta a Bold, en vivo, si el pago de una reserva ya entró. Llámala SIEMPRE que el cliente diga que ya pagó, que hizo la transferencia, que mandó el comprobante, o pregunte si ya le llegó el pago — ANTES de pedirle cualquier comprobante o de decirle que el equipo verifica. Pásale el reserva_id si lo tienes; si no, se busca por el celular de quien escribe. Si el pago entró, esta herramienta lo deja registrado y le confirma la reserva al cliente. NO le pidas el comprobante: para eso está esta herramienta.",
   parameters: {
     type: "object",
     properties: {
       reserva_id: {
         type: "integer",
         description:
-          "El número de reserva de esta conversación, si lo tenés. Si no, dejalo vacío y se busca por el celular.",
+          "El número de reserva de esta conversación, si lo tienes. Si no, déjalo vacío y se busca por el celular.",
       },
     },
     required: [],
@@ -549,7 +727,15 @@ export const verificarPagoTool: ToolDefinition = {
 
     if (!reservaId) {
       console.error(`[verificar_pago] No encontré reserva para ${ctx.externalId}`);
-      return { result: { ok: false, motivo: "no se identifico la reserva" }, reply_to_user: DERIVAR_AL_EQUIPO };
+      return {
+        result: { ok: false, motivo: "no se identifico la reserva" },
+        reply_to_user: await derivarAlEquipo({
+          motivo: "no se identificó la reserva al verificar el pago",
+          clave: "verificar_sin_reserva",
+          detalleTecnico: "el cliente dice que pagó pero no hay reserva asociada a su celular",
+          ctx,
+        }),
+      };
     }
 
     // La consulta a Bold vive en core/pipeline/verificarPagoEnBold.ts porque la comparte con la
@@ -567,7 +753,16 @@ export const verificarPagoTool: ToolDefinition = {
 
     if (v.sinLinksPendientes) {
       console.warn(`[verificar_pago] reserva #${reservaId}: no hay pagos pendientes con link que consultar.`);
-      return { result: { ok: false, motivo: "sin links pendientes que consultar" }, reply_to_user: DERIVAR_AL_EQUIPO };
+      return {
+        result: { ok: false, motivo: "sin links pendientes que consultar" },
+        reply_to_user: await derivarAlEquipo({
+          motivo: "el cliente dice que pagó pero no hay ningún pago que consultar",
+          clave: "verificar_sin_links",
+          detalleTecnico: "no hay pagos pendientes con link y la reserva no registra dinero recibido",
+          ctx,
+          reservaId,
+        }),
+      };
     }
 
     if (v.pagado) {
@@ -575,12 +770,22 @@ export const verificarPagoTool: ToolDefinition = {
       // preguntando a Bold por su cuenta más tarde (los chequeos de los 3/7 min, ni el de antes
       // de liberar). Best-effort: si esto falla, esos chequeos igual son inofensivos (no le
       // vuelven a escribir nada al cliente si ya está confirmado).
-      void bloqueoPendienteDe(ctx.channel, ctx.externalId)
-        .then((b) => (b ? cancelarSeguimientoDePago(b.id) : undefined))
-        .catch((err) => console.error("[verificar_pago] no pude cancelar el seguimiento pendiente del bloqueo:", err));
+      // [2026-09-14] Además de cancelar los chequeos, acá se CIERRA la confirmación: se marca el
+      // bloqueo como confirmado y se crea la reserva REAL en LobbyPMS. Antes solo se cancelaban
+      // los chequeos, así que un cliente que pagaba y escribía "ya pagué" recibía su
+      // confirmación... y en LobbyPMS no quedaba nada reservado (ver confirmarReserva.ts).
+      void finalizarPagoConfirmado({
+        canal: ctx.channel,
+        externalId: ctx.externalId,
+        reservaId,
+        origen: "verificar_pago",
+      }).catch((err) => console.error("[verificar_pago] no pude cerrar la confirmación del bloqueo:", err));
 
       const saldo = v.saldoPendiente ?? 0;
       const pagado = v.montoPagado ?? 0;
+      // [2026-09-13] Cuando queda saldo, se le recuerda CUÁNDO se paga con el texto oficial de
+      // la tabla `politicas` — antes decía "según las condiciones del plan", que no le decía nada.
+      const cuandoSePagaElSaldo = saldo > 0 ? await politica("saldo_pendiente") : null;
       const [resumen, cuenta] = await Promise.all([resumenDeReserva(reservaId), obtenerEstadoCuenta(reservaId)]);
       const nombre = primerNombre(cuenta?.cliente ?? null);
       const saludo = nombre ? `¡Confirmado, ${nombre}! 💚 ` : "¡Confirmado! 💚 ";
@@ -602,7 +807,8 @@ export const verificarPagoTool: ToolDefinition = {
           `${saludo}Acabo de verificarlo con el banco: ya nos entró tu pago de ${formatMoney(pagado)} y tu reserva` +
           `${quePlan}${fecha} queda ${saldo > 0 ? "apartada ✅" : "confirmada ✅"}.` +
           (saldo > 0
-            ? `\n\nQueda un saldo de ${formatMoney(saldo)}, que se paga según las condiciones del plan.`
+            ? `\n\nQueda un saldo de ${formatMoney(saldo)}.` +
+              (cuandoSePagaElSaldo ? `\n${cuandoSePagaElSaldo}` : "")
             : "\n\nNo queda saldo pendiente 🙌") +
           "\n\nNo necesitas mandarme el comprobante 😊",
       };

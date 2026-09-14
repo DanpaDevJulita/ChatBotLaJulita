@@ -61,14 +61,30 @@ export async function verificarPagoEnBold(reservaId: number): Promise<ResultadoV
   const pendientes = await pagosPendientesConLink(reservaId);
 
   if (pendientes.length === 0) {
-    // O ya está todo pagado, o nunca se le generó un link.
+    // O ya está todo pagado, o pagó un abono y no quedan links por consultar, o nunca se le
+    // generó uno.
     const cuenta = await obtenerEstadoCuenta(reservaId);
-    if (cuenta && cuenta.saldo <= 0 && cuenta.pagado > 0) {
+
+    // [2026-09-14] BUG REAL (Daniel, prueba del 13/09): un cliente pagó su ABONO del 50%, el bot
+    // se lo confirmó... y a los 10 minutos le liberó el cupo igual.
+    //
+    // Por qué: al pagarse, el link del abono deja de estar "pendiente", así que acá
+    // `pendientes.length === 0`. Y como todavía queda saldo (pagó la mitad), la condición de
+    // abajo (`saldo <= 0`) tampoco se cumplía — se caía en `sinLinksPendientes` con
+    // `pagado: false`. La liberación de los 10 minutos (bloqueo.ts) consulta JUSTO esta función
+    // antes de soltar el cupo: al leer `pagado: false` concluía que no había pagado nadie y
+    // soltaba el cupo, incluso el block en LobbyPMS. O sea, el peor caso posible: el cliente
+    // paga, se le confirma, y se le quita la reserva igual.
+    //
+    // La regla correcta es simple: si la reserva YA TIENE plata registrada, está pagada (total o
+    // parcialmente) y su cupo es suyo. `yaSinSaldo` sigue significando lo de siempre (no queda
+    // saldo) para que los mensajes al cliente no cambien.
+    if (cuenta && cuenta.pagado > 0) {
       return {
         ...VACIO,
         pagado: true,
         yaEstabaRegistrado: true,
-        yaSinSaldo: true,
+        yaSinSaldo: cuenta.saldo <= 0,
         montoPagado: cuenta.pagado,
         saldoPendiente: cuenta.saldo,
         estadoPago: cuenta.estado_pago,

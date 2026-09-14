@@ -29,13 +29,13 @@ function lineaDeReserva(r: ReservaConfirmada, incluirId = false): string {
  * bot (el vendedor la registra en LobbyPMS y esa reserva llega igual a esta misma tabla).
  *
  * Usa el número de WhatsApp de la conversación (`ctx.externalId`) para buscar — el cliente
- * nunca tiene que "darte" su número, ya lo tenés.
+ * nunca tiene que "darte" su número, ya lo tienes.
  */
 export const buscarReservaClienteTool: ToolDefinition = {
   name: "buscar_reserva_cliente",
   permitirRedaccion: true,
   description:
-    "Busca la(s) reserva(s) CONFIRMADA(S) del cliente que está escribiendo, usando su número de WhatsApp. Llamala siempre primero en cualquier conversación de postventa (cambios, cancelación, dudas durante la estadía, adicionales) — nunca asumas de memoria si el cliente tiene o no una reserva confirmada.",
+    "Busca la(s) reserva(s) CONFIRMADA(S) del cliente que está escribiendo, usando su número de WhatsApp. Llámala siempre primero en cualquier conversación de postventa (cambios, cancelación, dudas durante la estadía, adicionales) — nunca asumas de memoria si el cliente tiene o no una reserva confirmada.",
   parameters: { type: "object", properties: {}, required: [] },
   handler: async (_args: unknown, ctx: ToolContext) => {
     const reservas = await buscarReservasConfirmadasPorCelular(ctx.externalId);
@@ -44,7 +44,7 @@ export const buscarReservaClienteTool: ToolDefinition = {
       return {
         result: { encontradas: 0 },
         reply_to_user:
-          "No encuentro ninguna reserva confirmada con este número de WhatsApp. ¿Puede que hayas reservado con otro número, o a nombre de otra persona? Contame y lo reviso; si no, decime para qué fecha te gustaría venir y te cuento la disponibilidad.",
+          "No encuentro ninguna reserva confirmada con este número de WhatsApp. ¿Puede que hayas reservado con otro número, o a nombre de otra persona? Cuéntame y lo reviso; si no, dime para qué fecha te gustaría venir y te cuento la disponibilidad.",
       };
     }
 
