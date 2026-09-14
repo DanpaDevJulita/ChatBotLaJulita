@@ -57,9 +57,12 @@ function fechaDeHoyEnColombia(): string {
 //    desde el último aviso. Entre medio, el bot queda en silencio en vez de insistir: el
 //    mensaje del cliente igual queda guardado en `mensajes` y visible en el panel para el
 //    equipo.
-const MENSAJE_ESCALADO =
+// Exportados (no solo `const` privado) para que pruebas como e2e-orquestador.ts puedan verificar
+// que este texto NO se le filtra al orquestador como si fuera parte de la charla — ver el filtro
+// de `ultimosMensajes` más abajo — sin duplicar el string a mano (y arriesgarse a que se desincronicen).
+export const MENSAJE_ESCALADO =
   "Ya te comunico con el equipo de La Julita para que te ayude con esto — en un momento te escriben por acá.";
-const MENSAJE_RECORDATORIO =
+export const MENSAJE_RECORDATORIO =
   "Tu mensaje ya quedó con el equipo de La Julita, en breve te responden por acá 🙏";
 const UMBRAL_RECORDATORIO_MS = 15 * 60 * 1000;
 
@@ -154,7 +157,9 @@ async function loadHistory(channel: string, externalId: string, key: string): Pr
   // recuperar los últimos mensajes de Supabase para no "olvidar" al cliente si el
   // servidor se reinició a mitad de una conversación.
   const guardados = await listMensajes(channel, externalId, MAX_HISTORY_MESSAGES);
-  return guardados.map((m) => ({ role: m.role, content: m.content }));
+  // [2026-09-14] Se mantiene created_at para que el orquestador pueda calcular tiempo
+  // transcurrido y detectar cuándo el cliente está retomando (vs. continuando) una charla.
+  return guardados.map((m) => ({ role: m.role, content: m.content, created_at: m.created_at }));
 }
 
 /**
@@ -191,6 +196,42 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
     return;
   }
 
+  // [2026-09-14] Reconocimiento de audio: si el cliente mandó una nota de voz (o, más adelante,
+  // una imagen), acá todavía no hay texto en el evento — se resuelve ANTES que cualquier otra
+  // lógica (comandos, historial, orquestador), para que todo lo de abajo siga viendo un simple
+  // `event.text`, exactamente como si el cliente hubiera escrito. La descarga + transcripción
+  // vive en el adaptador del canal (ver resolveMediaText en whatsapp-ycloud/adapter.ts), no acá,
+  // para no mezclar código propio de YCloud en el core — mismo resultado que el reconocimiento
+  // de audio de agente-ycloud-main ("Sebas Raider"), portado con la arquitectura de canales de
+  // este bot.
+  if (event.mediaType && !event.text) {
+    try {
+      const texto = await adapter.resolveMediaText?.(event);
+      if (!texto) {
+        console.warn(`[runTurn] ${key}: no se pudo obtener texto del ${event.mediaType} (canal sin resolveMediaText o vacío).`);
+        await enviarSeguro(
+          adapter,
+          event.externalId,
+          event.mediaType === "audio"
+            ? "No logré entender bien tu audio 🙏 ¿Me lo puedes escribir o volver a enviar?"
+            : "Por ahora no puedo ver imágenes — ¿me cuentas en texto qué necesitas? 🙏",
+          key
+        );
+        return;
+      }
+      event.text = texto;
+    } catch (err) {
+      console.error(`[runTurn] ${key}: error procesando ${event.mediaType} del cliente:`, err);
+      await enviarSeguro(
+        adapter,
+        event.externalId,
+        "Tuve un problema escuchando tu audio 🙏 ¿Puedes intentar de nuevo o escribirlo?",
+        key
+      );
+      return;
+    }
+  }
+
   // Comandos del equipo (/corrige, /correcciones, /borra) — solo desde los números de
   // OWNER_WHATSAPP_NUMBERS. Se atienden ANTES de tratar el mensaje como una consulta de
   // cliente, así no ensucian el historial de ninguna conversación ni gastan una llamada al LLM.
@@ -210,7 +251,42 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
   // El orquestador decide a qué agente le toca este turno ANTES de gastar un hop de LLM
   // "de verdad" — nunca le habla al cliente, solo enruta (ver src/agentes/orquestador/prompt.md).
   const estado = await getEstado(event.channel, event.externalId);
-  const decision = await enrutarMensaje({ mensaje: event.text ?? "", lastAgent: estado.last_agent });
+
+  // [2026-09-14] Timestamps para detectar si el cliente está retomando (>30 min) o continuando.
+  // `ultimoMensajeClienteEn` sale del historial; `ahoraEn` es el timestamp del evento actual.
+  let ultimoMensajeClienteEn: string | undefined;
+  for (let i = history.length - 2; i >= 0; i--) {
+    if (history[i].role === "user") {
+      ultimoMensajeClienteEn = history[i].created_at;
+      break;
+    }
+  }
+
+  // [2026-09-14] Al orquestador ahora se le pasa el estado REAL de la conversación, no solo el
+  // mensaje suelto y `last_agent` (ver ContextoRuteo en orquestador/route.ts para el porqué).
+  // Todo esto ya estaba a mano: `estado` se acaba de leer y `history` vive en memoria — así que
+  // el router decide mucho mejor sin una sola consulta extra ni un milisegundo más de espera.
+  const decision = await enrutarMensaje({
+    mensaje: event.text ?? "",
+    lastAgent: estado.last_agent,
+    reservaActivaId: estado.reserva_activa_id,
+    escalado: Boolean(estado.escalado_en),
+    // `history` ya trae el mensaje nuevo (se agregó arriba): se saca para no repetírselo, porque
+    // va aparte como el mensaje a clasificar.
+    //
+    // [2026-09-14] Se filtran MENSAJE_ESCALADO / MENSAJE_RECORDATORIO: son el aviso fijo del BOT
+    // cuando escaló ("Ya te comunico con el equipo..."), no algo que dijo un agente real. Si
+    // quedan en el historial, el orquestador los lee como si la conversación SIGUIERA escalada
+    // aunque `escalado_en` ya se haya limpiado con /resuelto — y vuelve a mandar a `humano` un
+    // simple "Hola" de retoma, exactamente el bucle que reportó Daniel el 14/09: /resuelto sí
+    // limpiaba el estado, pero el eco de ese aviso en el historial le ganaba al estado real.
+    ultimosMensajes: history
+      .slice(0, -1)
+      .filter((m: any) => m.content !== MENSAJE_ESCALADO && m.content !== MENSAJE_RECORDATORIO)
+      .map((m: any) => ({ role: m.role, content: m.content })),
+    ultimoMensajeClienteEn,
+    ahoraEn: event.timestamp ?? new Date().toISOString(),
+  });
   await setLastAgent(event.channel, event.externalId, decision.agente);
 
   if (decision.agente === "humano") {

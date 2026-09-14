@@ -1,6 +1,7 @@
 import type { ChannelAdapter, InboundEvent, OutboundMessage } from "../types.js";
-import { sendTextMessage, sendImageMessage } from "./client.js";
+import { sendTextMessage, sendImageMessage, descargarMedia } from "./client.js";
 import { verifyYCloudSignature } from "./signature.js";
+import { transcribirAudio } from "../../core/llm/whisper.js";
 
 /** Teléfono E.164 válido: "+" seguido de 8 a 15 dígitos. */
 function esTelefono(id: string | null | undefined): id is string {
@@ -17,6 +18,14 @@ function normalizePhone(raw: string): string {
   return trimmed.startsWith("+") ? trimmed : `+${trimmed.replace(/[^\d]/g, "")}`;
 }
 
+/** YCloud entrega un link de descarga pre-firmado dentro del objeto de media; el nombre del
+ *  campo varía según versión — se prueban los alias conocidos (igual que ingestMessage.ts en
+ *  agente-ycloud-main). */
+function extraerMediaLink(media: Record<string, unknown> | undefined): string | undefined {
+  if (!media) return undefined;
+  return (media.link ?? media.url ?? media.mediaUrl ?? media.downloadUrl) as string | undefined;
+}
+
 export const whatsappYcloudAdapter: ChannelAdapter = {
   name: "whatsapp",
   async send(msg: OutboundMessage) {
@@ -25,6 +34,19 @@ export const whatsappYcloudAdapter: ChannelAdapter = {
     } else {
       await sendTextMessage(msg.to, msg.text ?? "");
     }
+  },
+  /**
+   * [2026-09-14] Notas de voz de WhatsApp: se bajan con el link firmado que manda YCloud en el
+   * propio webhook y se transcriben con el mismo modelo que usa el resto del bot (ver
+   * core/llm/whisper.ts) — mismo enfoque que agente-ycloud-main/src/services/whisper.ts
+   * ("Sebas Raider"), portado acá. Imagen: todavía no (ver TODO en parseYcloudWebhook).
+   */
+  async resolveMediaText(event: InboundEvent): Promise<string | undefined> {
+    if (event.mediaType !== "audio") return undefined;
+    if (!event.mediaLink && !event.mediaId) return undefined;
+    const { buffer, mime } = await descargarMedia({ link: event.mediaLink, mediaId: event.mediaId });
+    const texto = await transcribirAudio(buffer, event.mediaMime ?? mime);
+    return texto.trim() || undefined;
   },
 };
 
@@ -75,13 +97,31 @@ export function parseYcloudWebhook(rawBody: Buffer, signatureHeader: string | un
       continue;
     }
 
-    if (type === "audio" || type === "image") {
-      // TODO: cuando conectemos transcripción/visión (como whisper.ts/vision.ts del proyecto
-      // original), extraer el link de media aquí igual que hace ingestMessage.ts allá.
+    if (type === "audio") {
+      const audio = wim.audio as Record<string, unknown> | undefined;
+      const mediaId = (audio?.id ?? audio?.mediaId ?? wim.mediaId) as string | undefined;
+      const mime = (audio?.mimeType ?? audio?.mime ?? audio?.mime_type ?? "audio/ogg") as string;
+      const mediaLink = extraerMediaLink(audio);
       result.push({
         channel: "whatsapp",
         externalId,
-        mediaType: type,
+        mediaType: "audio",
+        mediaId,
+        mediaLink,
+        mediaMime: mime,
+        timestamp,
+        raw: ev,
+      });
+      continue;
+    }
+
+    if (type === "image") {
+      // TODO: cuando conectemos visión (como vision.ts del proyecto original), extraer el link
+      // de media acá igual que se hizo arriba para audio.
+      result.push({
+        channel: "whatsapp",
+        externalId,
+        mediaType: "image",
         timestamp,
         raw: ev,
       });

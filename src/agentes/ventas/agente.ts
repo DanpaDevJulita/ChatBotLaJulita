@@ -17,19 +17,32 @@ import { consultarRecargosTool } from "./herramientas/recargos.js";
 // import { consultarHorariosTool } from "./herramientas/planes.js";
 
 /**
- * Agente de VENTAS — el que vende: muestra planes y precios, confirma cupo, ofrece fechas
- * alternativas y toma los datos para dejar la reserva registrada.
+ * Agente de VENTAS — el que atiende a quien todavía está mirando: preguntas generales del
+ * glamping, catálogo de planes con precios y cupo, adicionales, recargos y políticas. Cuando el
+ * cliente decide avanzar con un plan y una fecha, el orquestador lo manda a `reservas`, y el
+ * cobro lo toma `pagos`.
  *
- * [2026-09-10] `atiende` tiene tres valores porque hoy este mismo agente cubre los tres temas
- * que el orquestador distingue antes de que exista un bot para cada uno: responder preguntas
- * generales (`informacion`), cotizar/reservar (`reservas`) y el momento de pagar (`pagos`).
- * Los diseños de esos dos bots propios están en src/agentes/reservas/ y src/agentes/pagos/.
- * Cuando alguien construya uno, crea el `agente.ts` de esa carpeta y saca el valor de esta
- * lista — no hace falta tocar ningún otro archivo.
+ * [2026-09-10] Hasta el 2026-09-14 este agente cubría ÉL SOLO los tres temas
+ * (`informacion`, `reservas`, `pagos`) porque los otros dos bots no existían todavía.
+ *
+ * [2026-09-14] Ya existen `src/agentes/reservas/` y `src/agentes/pagos/` con su propio
+ * `agente.ts`, así que esos dos temas salieron de acá — es el paso 5 del instructivo de
+ * src/agentes/LEEME.md ("si tu bot se queda con un tema que hoy atiende otro, sacá ese tema del
+ * `atiende` del otro agente").
+ *
+ * Por qué importaba corregirlo: mientras los tres temas los declaraban DOS agentes a la vez, el
+ * registro (`_registro.ts`) lo detectaba como error de configuración y escupía dos mensajes en
+ * cada arranque. Funcionaba de casualidad — gana el primero por orden alfabético, y "pagos" y
+ * "reservas" van antes que "ventas" — pero el día que alguien renombrara una carpeta, el ruteo
+ * habría cambiado solo, sin que nadie tocara una línea de lógica.
+ *
+ * Las herramientas de reserva y pago se dejan en la lista a propósito: si un cliente que viene
+ * por `informacion` decide avanzar en ese mismo mensaje, este agente puede cerrarle el paso sin
+ * cortarle el hilo. Los turnos SIGUIENTES ya se los lleva el bot que corresponde.
  */
 export const agente: DefinicionAgente = {
   nombre: "ventas",
-  atiende: ["informacion", "reservas", "pagos"],
+  atiende: ["informacion"],
   prompt: leerPromptDeAgente("ventas"),
   herramientas: [
     consultarPlanesTool,

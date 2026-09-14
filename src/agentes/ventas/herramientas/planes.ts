@@ -639,13 +639,17 @@ export const consultarPlanesTool: ToolDefinition = {
     // ---- Detalle de un plan puntual ----
     const buscado = sinTildes(limpiar(args?.plan));
 
-    // [2026-09-09] Cupo real contra LobbyPMS — solo cuando ya se va a mostrar un plan concreto
-    // (detalle de `plan`, o ya eligió `nivel`): en el menú de las tres experiencias todavía no
-    // hay un plan puntual al que preguntarle "¿hay cupo?", así que ahí no se consulta.
+    // [2026-09-09 → 2026-09-14] Cupo real contra LobbyPMS. Antes solo se consultaba cuando ya
+    // había un plan puntual (detalle de `plan`, o ya eligió `nivel`) — pero la rama de "pocos
+    // candidatos" (más abajo, cuando el segmento/personas dejan ≤3 planes) YA muestra planes
+    // puntuales con precio sin pasar por ninguna de esas dos condiciones. Ahí el cliente veía
+    // "PLAN FAMILIAR 3/4 PERSONAS" con precio y SIN ningún aviso de cupo, aunque los domos
+    // familiares estuvieran bloqueados esa fecha — bug reportado por Daniel el 14/09: el bot
+    // ofrecía el plan familiar con los domos ocupados. Ahora se consulta SIEMPRE que el cliente
+    // ya dio una fecha, sin importar si eligió nivel o pidió un plan puntual.
     // `disponibilidad === null` significa "no se pudo confirmar" (API caída, o no aplica) — en
     // ese caso todo el código de abajo cae al "le confirmo con el equipo" de siempre.
-    const disponibilidad =
-      args?.fecha && (args?.nivel || buscado) ? await consultarDisponibilidad(args.fecha, 1) : null;
+    const disponibilidad = args?.fecha ? await consultarDisponibilidad(args.fecha, 1) : null;
 
     // [2026-09-09] Le restamos al cupo de LobbyPMS lo que YA está bloqueado por otro cliente
     // en este mismo bot (ver src/core/db/bloqueosRepo.ts) — sin esto, dos conversaciones
@@ -802,11 +806,13 @@ export const consultarPlanesTool: ToolDefinition = {
       if (soloPasadias && disponibles.length > PLANES_POR_TANDA) {
         const escaleraDia = armarEscalera(candidatos, tarifa, args?.ocasion);
         const lineasDia = escaleraDia.map((x, i) =>
-          lineaDeEscalera(x, tarifa, escaleraDia.length >= 3 && i === 1, cat)
+          lineaDeEscalera(x, tarifa, escaleraDia.length >= 3 && i === 1, cat, disponibilidad)
         );
-        const cierreDia = args?.fecha
-          ? "Los valores son sin IVA. ¿Cuál te gustaría tomar? Con ese dato le pido al equipo que te confirme el cupo para esa fecha."
-          : "Los valores son sin IVA. ¿Para qué día lo tienen pensado? Con eso te confirmo el valor exacto y el cupo.";
+        const cierreDia = !args?.fecha
+          ? "Los valores son sin IVA. ¿Para qué día lo tienen pensado? Con eso te confirmo el valor exacto y el cupo."
+          : disponibilidad
+            ? "Los valores son sin IVA. ¿Cuál te gustaría tomar?"
+            : "Los valores son sin IVA. ¿Cuál te gustaría tomar? Con ese dato le pido al equipo que te confirme el cupo para esa fecha.";
         const encabezadoDia =
           nota ||
           `☀️ Pasadías${personas > 0 ? ` para ${textoPersonas(personas)}` : ""}${tarifa ? ` ${ETIQUETA_TARIFA[tarifa]}` : ""} (van de día, sin dormir):\n`;
@@ -825,11 +831,13 @@ export const consultarPlanesTool: ToolDefinition = {
       if (disponibles.length > 0 && disponibles.length <= PLANES_POR_TANDA) {
         disponibles.sort((a, b) => a.precio - b.precio);
         const lineas = disponibles.map((x, i) =>
-          lineaDeEscalera(x, tarifa, disponibles.length >= 3 && i === 1, cat)
+          lineaDeEscalera(x, tarifa, disponibles.length >= 3 && i === 1, cat, disponibilidad)
         );
-        const cierre = args?.fecha
-          ? "Los valores son sin IVA. ¿Cuál te gustaría tomar? Con ese dato le pido al equipo que te confirme el cupo para esa fecha."
-          : "Los valores son sin IVA. ¿Para qué fecha lo tienen pensado? Con eso te confirmo el valor exacto y el cupo.";
+        const cierre = !args?.fecha
+          ? "Los valores son sin IVA. ¿Para qué fecha lo tienen pensado? Con eso te confirmo el valor exacto y el cupo."
+          : disponibilidad
+            ? "Los valores son sin IVA. ¿Cuál te gustaría tomar?"
+            : "Los valores son sin IVA. ¿Cuál te gustaría tomar? Con ese dato le pido al equipo que te confirme el cupo para esa fecha.";
         return {
           result: {
             modo: "planes",

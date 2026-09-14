@@ -26,7 +26,10 @@
     "prueba:abono": "tsx pruebas/e2e-abono-no-pierde-cupo.ts",
     "prueba:pago-simulado": "tsx pruebas/e2e-pago-simulado-completo.ts",
     "prueba:saldo": "tsx pruebas/e2e-saldo-sin-escalar.ts",
-    "prueba:recargos": "tsx pruebas/e2e-recargos.ts"
+    "prueba:recargos": "tsx pruebas/e2e-recargos.ts",
+    "prueba:orquestador": "tsx pruebas/e2e-orquestador.ts",
+    "prueba:cupo-plan-familiar": "tsx pruebas/e2e-cupo-plan-familiar.ts",
+    "prueba:debounce": "tsx pruebas/e2e-debounce-mensajes.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",

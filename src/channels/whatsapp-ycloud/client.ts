@@ -2,8 +2,8 @@ import axios, { AxiosError, AxiosInstance } from "axios";
 
 /**
  * Cliente de bajo nivel para la API de YCloud — portado de
- * agente-ycloud-main/src/services/ycloudClient.ts, simplificado (por ahora solo texto e
- * imagen; documentos y descarga de media se agregan cuando los necesitemos).
+ * agente-ycloud-main/src/services/ycloudClient.ts, simplificado (por ahora texto, imagen y
+ * descarga de media; documentos se agregan cuando los necesitemos).
  */
 
 const YCLOUD_API_KEY = process.env.YCLOUD_API_KEY ?? "";
@@ -113,4 +113,29 @@ export async function sendImageMessage(target: string, imageUrl: string, caption
   };
   const res = await withRetry(() => getClient().post("/v2/whatsapp/messages", body), "sendImage");
   return res.data ?? {};
+}
+
+export interface MediaDescargado {
+  buffer: Buffer;
+  mime: string;
+}
+
+/**
+ * Descarga los bytes de un media entrante (nota de voz, imagen...) — portado de downloadMedia()
+ * en agente-ycloud-main/src/services/ycloudClient.ts. YCloud entrega, en el propio webhook, un
+ * link de descarga PRE-FIRMADO (con `sig` + `payload`); se usa ESE link directo. El path
+ * genérico `/v2/whatsapp/media/{id}` devuelve 404 en la práctica, así que el mediaId solo se
+ * intenta como último recurso si no vino ningún link.
+ */
+export async function descargarMedia(ref: { link?: string; mediaId?: string }): Promise<MediaDescargado> {
+  const target = ref.link ?? `/v2/whatsapp/media/${encodeURIComponent(ref.mediaId ?? "")}`;
+  if (!ref.link) {
+    console.warn(`[ycloud] descargando media sin link firmado (mediaId=${ref.mediaId}) — puede fallar con 404`);
+  }
+  const res = await withRetry(
+    () => getClient().get<ArrayBuffer>(target, { responseType: "arraybuffer" }),
+    "descargarMedia"
+  );
+  const mime = (res.headers?.["content-type"] as string) ?? "application/octet-stream";
+  return { buffer: Buffer.from(res.data), mime };
 }
