@@ -17,6 +17,7 @@ import { alertarFalloTecnico } from "../../../core/pipeline/notificarDesarrollo.
 import { notificarEscalamiento } from "../../../core/pipeline/notificarEquipo.js";
 import { verificarPagoEnBold } from "../../../core/pipeline/verificarPagoEnBold.js";
 import { finalizarPagoConfirmado } from "../../../core/pipeline/confirmarReserva.js";
+import { CIERRE_CONFIRMACION } from "../../../core/pipeline/avisarPago.js";
 import {
   crearLinkDePago,
   construirReference,
@@ -722,8 +723,23 @@ export const verificarPagoTool: ToolDefinition = {
     required: [],
   },
   handler: async (args: { reserva_id?: number }, ctx: ToolContext) => {
+    // [2026-09-14] Mismo arreglo que en `enviar_datos_pago` (ver el comentario grande ahí, sobre
+    // el bug de reserva cruzada del 13/09): esta herramienta también recibe un `reserva_id` que
+    // puede venir mal si el modelo repite uno viejo. `reservaActivaDe` es la reserva que ESTA
+    // conversación registró de verdad, y manda sobre lo que pida el modelo. Solo se cae a
+    // `ultimaReservaDeCelular` cuando no hay ninguna reserva activa registrada para esta charla
+    // (conversación vieja, de antes de este campo, o ya vencida por el TTL de 6h).
+    const reservaDeEstaConversacion = await reservaActivaDe(ctx.channel, ctx.externalId);
     let reservaId = Number(args?.reserva_id) || null;
-    if (!reservaId) reservaId = await ultimaReservaDeCelular(ctx.externalId);
+    if (reservaDeEstaConversacion && reservaId && reservaId !== reservaDeEstaConversacion) {
+      console.warn(
+        `[verificar_pago] el modelo pidió reserva_id=${reservaId} pero esta conversación (${ctx.channel}:` +
+          `${ctx.externalId}) registró la #${reservaDeEstaConversacion} — uso la de la conversación.`
+      );
+      reservaId = reservaDeEstaConversacion;
+    } else if (!reservaId) {
+      reservaId = reservaDeEstaConversacion ?? (await ultimaReservaDeCelular(ctx.externalId));
+    }
 
     if (!reservaId) {
       console.error(`[verificar_pago] No encontré reserva para ${ctx.externalId}`);
@@ -810,7 +826,7 @@ export const verificarPagoTool: ToolDefinition = {
             ? `\n\nQueda un saldo de ${formatMoney(saldo)}.` +
               (cuandoSePagaElSaldo ? `\n${cuandoSePagaElSaldo}` : "")
             : "\n\nNo queda saldo pendiente 🙌") +
-          "\n\nNo necesitas mandarme el comprobante 😊",
+          `\n\nNo necesitas mandarme el comprobante 😊${CIERRE_CONFIRMACION}`,
       };
     }
 

@@ -1,4 +1,5 @@
 import { ultimaReservaDeCelular } from "../db/pagosRepo.js";
+import { reservaActivaDe } from "../db/conversacionActivaRepo.js";
 import { finalizarPagoConfirmado } from "./confirmarReserva.js";
 import { verificarPagoEnBold } from "./verificarPagoEnBold.js";
 import { avisarPagoConfirmado } from "./avisarPago.js";
@@ -24,7 +25,11 @@ import { cancelarLiberacion, cancelarChequeosTempranos, type BloqueoJob } from "
 export async function ejecutarChequeoTemprano(job: BloqueoJob, minutoEnCurso?: number): Promise<void> {
   const key = `${job.canal}:${job.externalId}`;
 
-  const reservaId = await ultimaReservaDeCelular(job.externalId);
+  // [2026-09-14] Mismo arreglo que en enviar_datos_pago/verificar_pago (bug de reserva cruzada del
+  // 13/09): `ultimaReservaDeCelular` busca por celular y puede traer la reserva de OTRA conversación
+  // si ese número tiene más de una (dos pruebas seguidas, un cliente recurrente). `reservaActivaDe`
+  // es la reserva que ESTA conversación registró — solo se cae al celular si no hay ninguna activa.
+  const reservaId = (await reservaActivaDe(job.canal, job.externalId)) ?? (await ultimaReservaDeCelular(job.externalId));
   if (!reservaId) {
     console.log(`[chequeoTemprano] ${key}: no encontré ninguna reserva para este chat — no hay nada que chequear.`);
     return;

@@ -49,7 +49,13 @@ const TOTAL = 700000;
 const ABONO = 350000;
 const REF = `res${RESERVA}-abono-1789200000000`;
 
-function sembrar(opts: { pagoYaRegistrado?: boolean } = {}) {
+// [2026-09-14] Reserva de OTRA venta que comparte el mismo celular (dos pruebas seguidas, un
+// cliente recurrente) — usada solo por el caso C6, de reserva cruzada. Con id más alto que
+// RESERVA a propósito: es justo lo que `ultimaReservaDeCelular` (ordena por id descendente) elige
+// si nada la corrige.
+const RESERVA_OTRA = 999;
+
+function sembrar(opts: { pagoYaRegistrado?: boolean; conReservaCruzada?: boolean } = {}) {
   const r = filasDe("reservas"); r.length = 0;
   r.push({ id: RESERVA, cliente_id: 1, fecha_reservada: "2026-09-20", numero_huespedes: 2, planes: { nombre: "PLAN INTERMEDIO" } });
 
@@ -57,7 +63,12 @@ function sembrar(opts: { pagoYaRegistrado?: boolean } = {}) {
   c.push({ id: 1, nombre: "Andrea Gómez", celular: "3200000191" });
 
   const e = filasDe("estado_conversacion"); e.length = 0;
-  e.push({ canal: "whatsapp", external_id: CHAT, last_agent: "pagos", updated_at: new Date().toISOString() });
+  e.push({
+    canal: "whatsapp", external_id: CHAT, last_agent: "pagos", updated_at: new Date().toISOString(),
+    // Esta conversación registró de verdad RESERVA (191) — lo que usa `reservaActivaDe` (ver
+    // conversacionActivaRepo.ts) para no confundirla con otra reserva del mismo celular.
+    reserva_activa_id: RESERVA, reserva_activa_en: new Date().toISOString(),
+  });
 
   // [C4] "ya estaba registrado" tiene que ser un pago YA LIQUIDADO por completo (saldo 0), no un
   // abono parcial: verificarPagoEnBold() solo reconoce "ya estaba pagado" cuando saldo<=0 && pagado>0
@@ -93,6 +104,17 @@ function sembrar(opts: { pagoYaRegistrado?: boolean } = {}) {
   enviados.length = 0;
   rpcsLlamados.length = 0;
   consultasABold.length = 0;
+
+  if (opts.conReservaCruzada) {
+    // Mismo cliente/celular, OTRA reserva — sin pago pendiente que consultar, para que si el
+    // código resolviera esta por error, el chequeo se quede sin nada que confirmar.
+    r.push({ id: RESERVA_OTRA, cliente_id: 1, fecha_reservada: "2026-09-25", numero_huespedes: 2, planes: { nombre: "PLAN INTERMEDIO" } });
+    v.push({
+      reserva_id: RESERVA_OTRA, cliente_id: 1, cliente: "Andrea Gómez", celular: "3200000191",
+      fecha_checkin: "2026-09-25", total: 999000, pagado: 0, saldo: 999000,
+      estado_pago: "pendiente", estado_reserva: "borrador", num_pagos: 0,
+    });
+  }
 }
 
 function bloqueo() { return filasDe("bloqueos_temporales").find((b) => b.id === BLOQUEO); }
@@ -149,6 +171,27 @@ const CASOS: Caso[] = [
       // El pago ya estaba pagado en la base (no hay nada pendiente que consultar en Bold), así que
       // tampoco hace falta que se haya llamado a fn_registrar_pago_aprobado de nuevo.
       if (rpcsLlamados.some((r) => r.nombre === "fn_registrar_pago_aprobado")) fallas.push("volvió a registrar un pago que ya estaba registrado");
+      return fallas;
+    },
+  },
+  {
+    nombre:
+      "C6. Reserva cruzada: el mismo celular tiene OTRA reserva más nueva, pero el chequeo debe " +
+      "seguir esta conversación, no la última del celular",
+    detalle:
+      "[2026-09-14] Mismo bug del 13/09 (INCIDENTE-2026-09-13-reserva-cruzada.md), pero por este " +
+      "camino: `ultimaReservaDeCelular` elegiría RESERVA_OTRA (id más alto, mismo celular) en vez " +
+      "de la 191, que es la que esta conversación registró de verdad.",
+    preparar: () => { sembrar({ conReservaCruzada: true }); boldResponderaEstado({ status: "PAID", transaction_id: "TX-C6", total: ABONO, reference: REF }); },
+    revisar: () => {
+      const fallas: string[] = [];
+      const msg = enviados[enviados.length - 1] ?? "";
+      if (!msg) fallas.push(`no le escribió nada al cliente — probablemente consultó la reserva #${RESERVA_OTRA} (sin pago pendiente) en vez de la #${RESERVA} (que sí tenía el pago)`);
+      if (!/Confirmado|confirmada|apartada/i.test(msg)) fallas.push("no le confirmó la reserva correcta");
+      if (bloqueo()?.estado !== "confirmado") fallas.push(`el bloqueo #${BLOQUEO} (de la reserva #${RESERVA}) quedó en "${bloqueo()?.estado}" en vez de confirmado`);
+      const rpc = rpcsLlamados.find((r) => r.nombre === "fn_registrar_pago_aprobado");
+      if (!rpc) fallas.push("no registró ningún pago");
+      else if (rpc.args?.p_referencia !== REF) fallas.push(`registró el pago con referencia "${rpc.args?.p_referencia}", que no es la de la reserva #${RESERVA} (${REF}) — se cruzó con otra reserva`);
       return fallas;
     },
   },

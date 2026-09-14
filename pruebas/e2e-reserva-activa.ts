@@ -23,12 +23,14 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ||= "prueba";
 process.env.BOLD_API_KEY ||= "prueba";
 process.env.FOLLOWUP_ENABLED ||= "false";
 
-const { instalarSupabaseFalso, instalarBoldFalso, filasDe, linksPedidosABold } = await import("./fakes.js");
+const {
+  instalarSupabaseFalso, instalarBoldFalso, filasDe, linksPedidosABold, boldResponderaEstado, rpcsLlamados,
+} = await import("./fakes.js");
 
 instalarSupabaseFalso();
 instalarBoldFalso();
 
-const { enviarDatosPagoTool } = await import("../src/agentes/ventas/herramientas/pago.js");
+const { enviarDatosPagoTool, verificarPagoTool } = await import("../src/agentes/ventas/herramientas/pago.js");
 const { recordarReservaActiva } = await import("../src/core/db/conversacionActivaRepo.js");
 
 // --- Dos clientes, dos reservas, dos conversaciones de WhatsApp distintas -------------------
@@ -110,9 +112,46 @@ console.log("\nCASO 2. Sin reserva_id del modelo, la conversación igual sabe cu
   }
 }
 
+console.log("\nCASO 3. verificar_pago (\"ya pagué\") tampoco se cruza — mismo bug, otro camino\n");
+{
+  // [2026-09-14] `verificar_pago` tenía el MISMO problema que `enviar_datos_pago` antes del
+  // arreglo del 13/09: si no le pasan reserva_id, cae directo a `ultimaReservaDeCelular` sin
+  // mirar primero la reserva activa de esta conversación. Acá se le da a propósito el reserva_id
+  // del cliente B mientras se habla desde la conversación del cliente A.
+  filasDe("pagos").push({
+    id: 501, reserva_id: CLIENTE_A.reservaId, tipo: "abono", valor: Math.floor(CLIENTE_A.total * 0.5),
+    referencia: "ref-cliente-a-501", estado: "pendiente",
+    payment_link: "LNK_A", link_url: "https://checkout.bold.co/payment/LNK_A",
+  });
+  boldResponderaEstado({ status: "PAID", transaction_id: "TX-CASO3", total: Math.floor(CLIENTE_A.total * 0.5), reference: "ref-cliente-a-501" });
+  rpcsLlamados.length = 0;
+
+  const resultado = await verificarPagoTool.handler(
+    { reserva_id: CLIENTE_B.reservaId },
+    { channel: CANAL, externalId: CLIENTE_A.externalId }
+  );
+
+  const r = resultado.result as any;
+  if (r.reserva_id !== CLIENTE_A.reservaId) {
+    console.log(`  ❌ usó la reserva #${r.reserva_id}, debía usar la #${CLIENTE_A.reservaId} (la de esta conversación)`);
+    fallas++;
+  } else {
+    console.log(`  ✅ ignoró el reserva_id equivocado (#${CLIENTE_B.reservaId}) y verificó el pago de esta conversación (#${CLIENTE_A.reservaId})`);
+  }
+
+  const rpc = rpcsLlamados.find((x) => x.nombre === "fn_registrar_pago_aprobado");
+  const pagoRegistrado = rpc && filasDe("pagos").find((p) => p.referencia === rpc.args?.p_referencia);
+  if (!pagoRegistrado || pagoRegistrado.reserva_id !== CLIENTE_A.reservaId) {
+    console.log(`  ❌ registró un pago de la reserva #${pagoRegistrado?.reserva_id}, no de la #${CLIENTE_A.reservaId} (cliente A)`);
+    fallas++;
+  } else {
+    console.log(`  ✅ registró el pago de la reserva correcta (#${CLIENTE_A.reservaId}, cliente A)`);
+  }
+}
+
 console.log("\n" + "█".repeat(96));
 if (fallas === 0) {
-  console.log(`  RESULTADO: ✅ 2/2 casos pasaron. Ningún cliente puede terminar pagando la reserva de otro.`);
+  console.log(`  RESULTADO: ✅ 3/3 casos pasaron. Ningún cliente puede terminar pagando (ni verificando) la reserva de otro.`);
 } else {
   console.log(`  RESULTADO: ❌ ${fallas} falla(s).`);
   process.exitCode = 1;

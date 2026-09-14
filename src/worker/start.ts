@@ -4,6 +4,7 @@ import { whatsappYcloudAdapter } from "../channels/whatsapp-ycloud/adapter.js";
 import { startInboundWorker } from "./inboundWorker.js";
 import { startRecontactoWorker } from "./recontactoWorker.js";
 import { startBloqueoWorker } from "./bloqueoWorker.js";
+import { startRecordatorioWorker } from "./recordatorioWorker.js";
 
 /**
  * Punto de entrada del proceso worker — corre SEPARADO del proceso web (src/web/start.ts).
@@ -18,11 +19,14 @@ registerChannel(whatsappYcloudAdapter);
 const worker = startInboundWorker();
 const workerRecontacto = startRecontactoWorker();
 const workerBloqueo = startBloqueoWorker();
-console.log("Worker de La Julita escuchando las colas 'inbound', 'recontacto' y 'bloqueo' en Redis...");
+const workerRecordatorio = startRecordatorioWorker();
+console.log("Worker de La Julita escuchando las colas 'inbound', 'recontacto', 'bloqueo' y 'recordatorio-visita' en Redis...");
 
 function shutdown(signal: string): void {
   console.log(`[worker] Señal ${signal} recibida, cerrando...`);
-  Promise.allSettled([worker.close(), workerRecontacto.close(), workerBloqueo.close()]).finally(() => process.exit(0));
+  Promise.allSettled([worker.close(), workerRecontacto.close(), workerBloqueo.close(), workerRecordatorio.close()]).finally(() =>
+    process.exit(0)
+  );
 }
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));

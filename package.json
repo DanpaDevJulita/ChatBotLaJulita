@@ -25,7 +25,8 @@
     "prueba:gateway": "tsx pruebas/e2e-gateway-timeout.ts",
     "prueba:abono": "tsx pruebas/e2e-abono-no-pierde-cupo.ts",
     "prueba:pago-simulado": "tsx pruebas/e2e-pago-simulado-completo.ts",
-    "prueba:saldo": "tsx pruebas/e2e-saldo-sin-escalar.ts"
+    "prueba:saldo": "tsx pruebas/e2e-saldo-sin-escalar.ts",
+    "prueba:recordatorio": "tsx pruebas/e2e-recordatorio-visita.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",

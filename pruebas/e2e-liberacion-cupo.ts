@@ -56,7 +56,12 @@ const TOTAL = 760000;
 const ABONO = 380000;
 const REF = `res${RESERVA}-abono-1789000000000`;
 
-function sembrar(opts: { conCupoEnLobby?: boolean; estadoBloqueo?: string } = {}) {
+// [2026-09-14] Reserva de OTRA venta que comparte el mismo celular — usada solo por el caso L7,
+// de reserva cruzada. Con id más alto a propósito: es justo lo que `ultimaReservaDeCelular`
+// (ordena por id descendente) elige si nada la corrige.
+const RESERVA_OTRA = 999;
+
+function sembrar(opts: { conCupoEnLobby?: boolean; estadoBloqueo?: string; conReservaCruzada?: boolean } = {}) {
   const r = filasDe("reservas"); r.length = 0;
   r.push({ id: RESERVA, cliente_id: 1, fecha_reservada: "2026-09-15", numero_huespedes: 3, planes: { nombre: "PLAN FAMILIAR 3 PERSONAS" } });
 
@@ -64,7 +69,12 @@ function sembrar(opts: { conCupoEnLobby?: boolean; estadoBloqueo?: string } = {}
   c.push({ id: 1, nombre: "Daniel Pataquiva", celular: "3212191805" });
 
   const e = filasDe("estado_conversacion"); e.length = 0;
-  e.push({ canal: "whatsapp", external_id: CHAT, last_agent: "pagos", updated_at: new Date().toISOString() });
+  e.push({
+    canal: "whatsapp", external_id: CHAT, last_agent: "pagos", updated_at: new Date().toISOString(),
+    // Esta conversación registró de verdad RESERVA (91) — lo que usa `reservaActivaDe` para no
+    // confundirla con otra reserva del mismo celular.
+    reserva_activa_id: RESERVA, reserva_activa_en: new Date().toISOString(),
+  });
 
   const v = filasDe("v_estado_cuenta"); v.length = 0;
   v.push({ reserva_id: RESERVA, cliente_id: 1, cliente: "Daniel Pataquiva", celular: "3212191805",
@@ -91,6 +101,17 @@ function sembrar(opts: { conCupoEnLobby?: boolean; estadoBloqueo?: string } = {}
   bloqueosCreadosLobby.length = 0;
   lobbyResponderaDisponibilidad([5]);
   lobbyResponderaBlock(true);
+
+  if (opts.conReservaCruzada) {
+    // Mismo cliente/celular, OTRA reserva — sin pago pendiente que consultar, para que si el
+    // código resolviera esta por error, la liberación no encuentre nada y suelte el cupo pagado.
+    r.push({ id: RESERVA_OTRA, cliente_id: 1, fecha_reservada: "2026-09-18", numero_huespedes: 3, planes: { nombre: "PLAN FAMILIAR 3 PERSONAS" } });
+    v.push({
+      reserva_id: RESERVA_OTRA, cliente_id: 1, cliente: "Daniel Pataquiva", celular: "3212191805",
+      fecha_checkin: "2026-09-18", total: 999000, pagado: 0, saldo: 999000,
+      estado_pago: "pendiente", estado_reserva: "borrador", num_pagos: 0,
+    });
+  }
 }
 
 function bloqueo() { return filasDe("bloqueos_temporales").find((b) => b.id === BLOQUEO); }
@@ -227,6 +248,29 @@ const CASOS: Caso[] = [
       if (consultasDisponibilidadLobby.length !== 3) {
         fallas.push(`hizo ${consultasDisponibilidadLobby.length} intentos en vez de agotar los 3 antes de escalar`);
       }
+      return fallas;
+    },
+  },
+  {
+    nombre:
+      "L7. Reserva cruzada: el mismo celular tiene OTRA reserva más nueva, pero la liberación " +
+      "debe seguir esta conversación, no la última del celular",
+    detalle:
+      "[2026-09-14] Mismo bug del 13/09 (INCIDENTE-2026-09-13-reserva-cruzada.md), pero acá: " +
+      "`ultimaReservaDeCelular` elegiría RESERVA_OTRA (id más alto, mismo celular) en vez de la " +
+      "91, que es la que esta conversación registró de verdad — y de haberla usado, hubiera " +
+      "liberado un cupo YA PAGADO.",
+    preparar: () => { sembrar({ conReservaCruzada: true }); boldResponderaEstado({ status: "PAID", transaction_id: "TX-L7", total: ABONO, reference: REF }); },
+    revisar: () => {
+      const fallas: string[] = [];
+      const msg = mensajeCliente();
+      if (/liberé el cupo/i.test(msg)) fallas.push(`LE LIBERÓ UN CUPO YA PAGADO (probablemente consultó la reserva #${RESERVA_OTRA} en vez de la #${RESERVA})`);
+      if (bloqueo()?.estado === "liberado") fallas.push("el bloqueo quedó liberado pese al pago");
+      if (bloqueo()?.estado !== "confirmado") fallas.push(`el bloqueo quedó en "${bloqueo()?.estado}" en vez de confirmado`);
+      const rpc = rpcsLlamados.find((r) => r.nombre === "fn_registrar_pago_aprobado");
+      if (!rpc) fallas.push("no registró ningún pago");
+      else if (rpc.args?.p_referencia !== REF) fallas.push(`registró el pago con referencia "${rpc.args?.p_referencia}", que no es la de la reserva #${RESERVA} (${REF}) — se cruzó con otra reserva`);
+      if (!/Confirmado/i.test(msg)) fallas.push("no le confirmó el pago al cliente");
       return fallas;
     },
   },

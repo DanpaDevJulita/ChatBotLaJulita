@@ -3,6 +3,7 @@ import { cancelarSeguimientoDePago } from "../queue/bloqueoQueue.js";
 import { crearReservaRealDesdeBloqueo, type ResultadoReservaLobby } from "./reservaLobby.js";
 import { avisarReservaNoCreadaEnLobby } from "./notificarEquipo.js";
 import { alertarFalloTecnico } from "./notificarDesarrollo.js";
+import { programarRecordatorioVisita } from "../queue/recordatorioQueue.js";
 
 /**
  * [2026-09-14] Un solo lugar para todo lo que hay que hacer cuando un pago queda confirmado.
@@ -94,6 +95,27 @@ export async function finalizarPagoConfirmado(params: {
     console.log(
       `[confirmarReserva:${origen}] bloqueo #${bloqueo.id}: reserva creada en LobbyPMS #${lobby.bookingId}.`
     );
+
+    // [2026-09-14] Acá, y solo acá, la reserva pasa de "apartada" a real en LobbyPMS — es el
+    // primer momento en que la fecha de check-in es una promesa firme. Por eso es el lugar
+    // correcto (y, por la idempotencia de este `if`, el ÚNICO lugar) para programar el
+    // recordatorio del día antes. Mejor esfuerzo: si esto falla, no debe tumbar la confirmación
+    // del pago, que ya está hecha.
+    if (params.reservaId) {
+      void programarRecordatorioVisita({
+        reservaId: params.reservaId,
+        canal: bloqueo.canal,
+        externalId: bloqueo.external_id,
+        fechaCheckinISO: bloqueo.fecha_entrada,
+      }).catch((err) =>
+        console.error(`[confirmarReserva:${origen}] bloqueo #${bloqueo!.id}: no pude programar el recordatorio del día antes:`, err)
+      );
+    } else {
+      console.warn(
+        `[confirmarReserva:${origen}] bloqueo #${bloqueo.id}: no tengo reservaId, no puedo programar el recordatorio del día antes.`
+      );
+    }
+
     return { bloqueoId: bloqueo.id, lobby };
   }
 

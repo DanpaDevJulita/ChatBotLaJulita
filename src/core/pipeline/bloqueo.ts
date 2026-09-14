@@ -1,6 +1,7 @@
 import type { ChannelAdapter } from "../../channels/types.js";
 import { liberarBloqueoSiVencido } from "../db/bloqueosRepo.js";
 import { ultimaReservaDeCelular } from "../db/pagosRepo.js";
+import { reservaActivaDe } from "../db/conversacionActivaRepo.js";
 import { verificarPagoEnBold } from "./verificarPagoEnBold.js";
 import { avisarPagoConfirmado } from "./avisarPago.js";
 import { asegurarCupoConReintentos } from "./asegurarCupo.js";
@@ -35,7 +36,10 @@ export async function ejecutarLiberacionBloqueo(job: BloqueoJob, adapter: Channe
   //
   // El cliente no se entera de esta consulta: si no hay pago, el flujo sigue exactamente igual
   // que antes. Si SÍ lo hay, no se libera nada y se le manda la confirmación que le correspondía.
-  const reservaId = await ultimaReservaDeCelular(job.externalId);
+  // [2026-09-14] Mismo arreglo que en enviar_datos_pago/verificar_pago/chequeoTemprano (bug de
+  // reserva cruzada del 13/09): se prefiere la reserva que ESTA conversación registró
+  // (`reserva_activa_id`) sobre "la última reserva de este celular", que puede ser de otra charla.
+  const reservaId = (await reservaActivaDe(job.canal, job.externalId)) ?? (await ultimaReservaDeCelular(job.externalId));
   if (reservaId) {
     try {
       const verificacion = await verificarPagoEnBold(reservaId);

@@ -68,6 +68,24 @@ function primerNombre(nombreCompleto: string | null | undefined): string | null 
   return primero ? primero.charAt(0).toUpperCase() + primero.slice(1).toLowerCase() : null;
 }
 
+/**
+ * [2026-09-14] Pedido de Daniel: seguido de CONFIRMAR una reserva (no de la de "estoy validando
+ * la fecha" — esa todavía no es una confirmación), ofrecer adicionales sin sonar cansón ni
+ * necesitado, y decirle que estamos felices de recibirlo.
+ *
+ * Por qué es una sola línea genérica y no un listado armado a mano contra lo que YA trae el
+ * plan: no hay en la base ninguna relación estructurada "qué adicionales incluye cada plan" (los
+ * planes solo traen precio y una descripción en texto libre, ver sql/schema.sql PARTE 2) — armar
+ * ese cruce a mano sería inventar una regla que no existe. La invitación abierta ("si quieres
+ * sumarle algo, pregúntame") deja que el cliente mismo filtre: si ya lo tiene incluido, no lo va
+ * a pedir. Se reusa acá y en `verificar_pago` (pago.ts) para que el cierre suene igual sin
+ * importar por cuál de los 4 caminos se confirmó el pago.
+ */
+export const CIERRE_CONFIRMACION =
+  "\n\nEstamos felices de recibirte pronto en La Julita 💚 Si quieres sumarle algo especial a tu estadía " +
+  "(desayuno especial, jacuzzi, decoración, transporte u otra sorpresa) solo cuéntame y te paso los precios " +
+  "— sin ningún compromiso.";
+
 /** Arma el mensaje exacto. Separado para poder probarlo sin tocar WhatsApp ni la base. */
 export function textoDeConfirmacion(params: {
   nombre: string | null;
@@ -109,7 +127,10 @@ export function textoDeConfirmacion(params: {
     : `Ya nos entró tu pago de ${formatMoney(params.pagado)} y tu reserva${quePlan}${cuando} queda confirmada ✅\n\n` +
       "No queda saldo pendiente 🙌";
 
-  return `${saludo} ${cuerpo}\n\nNo necesitas mandarme el comprobante, ya lo vi de mi lado 😊 Cualquier cosa que necesites antes de tu llegada, escríbeme por acá.`;
+  return (
+    `${saludo} ${cuerpo}\n\nNo necesitas mandarme el comprobante, ya lo vi de mi lado 😊 Cualquier cosa que necesites ` +
+    `antes de tu llegada, escríbeme por acá.${CIERRE_CONFIRMACION}`
+  );
 }
 
 export async function avisarPagoConfirmado(datos: DatosDelPago): Promise<void> {
