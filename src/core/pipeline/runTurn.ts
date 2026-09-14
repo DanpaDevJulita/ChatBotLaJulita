@@ -328,6 +328,16 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
   let yaForzoRevalidacionDePrecio = false;
   const tieneConsultarPlanes = agente.herramientas.some((h) => h.name === "consultar_planes");
 
+  // [2026-09-14] Con los bots separados (reservas/pagos/postventa/ventas), un
+  // `forzarSiguienteHerramienta` a veces corre, DENTRO del turno de un bot, una herramienta que en
+  // realidad es de OTRO bot (ej.: `reservas` fuerza `preguntar_forma_de_pago`, que es de `pagos`).
+  // Se guarda acá el dueño real de la ÚLTIMA herramienta que corrió con `agenteDueno` marcado (ver
+  // core/tools/types.ts) para, al final del turno, corregir a dónde queda "pegada" la
+  // conversación — si no se corrige, la regla de Pegajosidad del orquestador (ver
+  // src/agentes/orquestador/prompt.md) dejaría el próximo mensaje corto del cliente ("abono",
+  // "total") en el bot que ya no tiene las herramientas para seguir.
+  let ultimoDuenoDeHerramienta: string | null = null;
+
   // [2026-09-08] Antes, un fallo del LLM o de una herramienta (timeout, error de red, error
   // interno) se iba SIN CAPTURAR — el trabajo en la cola terminaba fallando después de sus
   // reintentos y el cliente se quedaba sin ninguna respuesta, en silencio total (así se
@@ -387,6 +397,11 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
 
           const definicion = buscarHerramienta(call.function.name, agente.herramientas);
           const redaccionLibre = Boolean(definicion?.permitirRedaccion) && Boolean(toolResult.reply_to_user);
+
+          // Se guarda el dueño real de ESTA herramienta si lo declara (ver comentario arriba,
+          // antes del while) — se queda con el último, que es el que refleja el estado de la
+          // conversación al final del turno.
+          if (definicion?.agenteDueno) ultimoDuenoDeHerramienta = definicion.agenteDueno;
 
           history.push({
             role: "tool",
@@ -571,6 +586,19 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
       );
       reply = textoDeRespaldo ?? SIN_DATO_VERIFICADO;
     }
+  }
+
+  // [2026-09-14] Corrección de a qué bot queda "pegada" la conversación — ver el comentario junto
+  // a `ultimoDuenoDeHerramienta`, antes del while. Se hace DESPUÉS del turno (no reemplaza el
+  // `setLastAgent` de arriba, lo corrige) porque recién acá se sabe cuál fue la última herramienta
+  // que de verdad corrió.
+  if (ultimoDuenoDeHerramienta && ultimoDuenoDeHerramienta !== decision.agente) {
+    console.log(
+      `[runTurn] el turno lo clasificó el orquestador como "${decision.agente}" pero la última ` +
+        `herramienta que corrió es de "${ultimoDuenoDeHerramienta}" — corrijo last_agent para el ` +
+        `próximo mensaje — ${key}`
+    );
+    await setLastAgent(event.channel, event.externalId, ultimoDuenoDeHerramienta);
   }
 
   history.push({ role: "assistant", content: reply });

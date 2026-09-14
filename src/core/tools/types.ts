@@ -53,4 +53,23 @@ export interface ToolDefinition {
    */
   getParameters?: () => Promise<Record<string, unknown>>;
   handler: (args: any, ctx: ToolContext) => Promise<ToolResult>;
+  /**
+   * [2026-09-14] Nombre del BOT DUEÑO real de esta herramienta — no necesariamente el agente que
+   * la está llamando ahora mismo (varios bots la pueden importar, ver la convención en
+   * src/agentes/postventa/agente.ts). Coincide con un valor de `decision.agente` del orquestador
+   * (ver src/agentes/orquestador/prompt.md): "reservas", "pagos", "postventa", etc.
+   *
+   * Para qué sirve: con los bots separados, un `forzarSiguienteHerramienta` a veces termina
+   * corriendo, DENTRO del turno de un bot, una herramienta que en realidad es de OTRO bot (ej.:
+   * `reservas` fuerza `preguntar_forma_de_pago`, que es de `pagos`, para que el link no dependa
+   * de un mensaje extra del cliente). Si no se corrige nada, el próximo mensaje corto del
+   * cliente ("abono", "total") se queda "pegado" a `reservas` por la regla de Pegajosidad del
+   * orquestador — y `reservas` no tiene las herramientas para seguir el pago. runTurn.ts usa este
+   * campo para, al final del turno, dejar `last_agent` apuntando al dueño real de la ÚLTIMA
+   * herramienta que corrió, en vez de al bot que el orquestador había clasificado al principio.
+   *
+   * Si se omite, se asume que la herramienta es del mismo agente que la declaró — así no hace
+   * falta tocar ninguna herramienta que no participe de un encadenado entre bots distintos.
+   */
+  agenteDueno?: string;
 }

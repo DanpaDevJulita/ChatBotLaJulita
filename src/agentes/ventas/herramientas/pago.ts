@@ -464,6 +464,11 @@ function textoDeLaPregunta(datos: DatosDeCobro, encabezado: string, minutos: num
 export const preguntarFormaDePagoTool: ToolDefinition = {
   name: "preguntar_forma_de_pago",
   permitirRedaccion: false,
+  // [2026-09-14] Ver el comentario grande de `agenteDueno` en core/tools/types.ts: esta
+  // herramienta es del bot de PAGOS aunque `reservas` (o `postventa`) la llame en el mismo turno
+  // que `registrar_datos_reserva` (encadenada con forzarSiguienteHerramienta). Con esto marcado,
+  // runTurn.ts deja la conversación "pegada" a `pagos` para el próximo mensaje del cliente.
+  agenteDueno: "pagos",
   description:
     "Le pregunta al cliente si quiere abonar el 50% para apartar la fecha o pagar el valor total, mostrándole los DOS montos exactos. Llámala SIEMPRE justo después de que registrar_datos_reserva devuelva ok con un reserva_id, y también cuando el cliente diga que quiere pagar pero todavía no haya elegido entre abono y total. Es el paso previo OBLIGATORIO a enviar_datos_pago: el link sale con el valor ya fijado, así que primero el cliente tiene que elegir. NO calcules tú los montos ni los repitas: esta herramienta los manda tal cual.",
   parameters: {
@@ -511,6 +516,9 @@ export const enviarDatosPagoTool: ToolDefinition = {
   name: "enviar_datos_pago",
   // El texto va LITERAL: montos y links no se reformulan.
   permitirRedaccion: false,
+  // Ver el comentario de `preguntarFormaDePagoTool` arriba y el de `agenteDueno` en
+  // core/tools/types.ts.
+  agenteDueno: "pagos",
   description:
     "Manda el link de pago de una reserva ya registrada, CON EL VALOR YA FIJADO. Solo se llama DESPUÉS de que el cliente eligió entre abonar el 50% o pagar el total (se lo pregunta preguntar_forma_de_pago): pásale modalidad=\"abono\" o modalidad=\"total\" según lo que el cliente haya dicho EXPLÍCITAMENTE en el chat. Si todavía no eligió, no la llames — llama preguntar_forma_de_pago. Nunca adivines la modalidad. Pásale también el reserva_id que devolvió registrar_datos_reserva. NO confirma pagos ni dice que una reserva quedó pagada: eso lo verifica el equipo.",
   parameters: {
@@ -709,6 +717,9 @@ export const enviarDatosPagoTool: ToolDefinition = {
 export const verificarPagoTool: ToolDefinition = {
   name: "verificar_pago",
   permitirRedaccion: false,
+  // Ver el comentario de `preguntarFormaDePagoTool` arriba y el de `agenteDueno` en
+  // core/tools/types.ts.
+  agenteDueno: "pagos",
   description:
     "Le pregunta a Bold, en vivo, si el pago de una reserva ya entró. Llámala SIEMPRE que el cliente diga que ya pagó, que hizo la transferencia, que mandó el comprobante, o pregunte si ya le llegó el pago — ANTES de pedirle cualquier comprobante o de decirle que el equipo verifica. Pásale el reserva_id si lo tienes; si no, se busca por el celular de quien escribe. Si el pago entró, esta herramienta lo deja registrado y le confirma la reserva al cliente. NO le pidas el comprobante: para eso está esta herramienta.",
   parameters: {

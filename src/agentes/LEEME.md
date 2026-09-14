@@ -31,15 +31,21 @@ El orquestador (`orquestador/prompt.md`) clasifica cada mensaje en un tema: `inf
 
 ```ts
 export const agente: DefinicionAgente = {
-  nombre: "ventas",
-  atiende: ["informacion", "reservas", "pagos"],   // hoy ventas cubre los tres
-  prompt: leerPromptDeAgente("ventas"),
+  nombre: "reservas",
+  atiende: ["reservas"],   // un bot, un tema — lo normal
+  prompt: leerPromptDeAgente("reservas"),
   herramientas: [ ... ],
 };
 ```
 
-Hoy `ventas` atiende tres temas porque todavía no existen los bots de reservas y de pagos por
-separado. Sus diseños están en `reservas/` y `pagos/` (con el prompt escrito, sin `agente.ts`).
+[2026-09-14] Cada tema del orquestador (`informacion`, `reservas`, `pagos`, `postventa`) ya tiene
+su propio bot: `ventas` (informacion), `reservas`, `pagos` y `postventa`. Hasta el 2026-09-14,
+`ventas` cubría los tres primeros porque `reservas` y `pagos` todavía no existían como bots
+propios — quedó como referencia en el historial de este archivo, no como ejemplo a seguir.
+
+"Recontacto" (el sexto bot que menciona Daniel en la conversación de este cambio) NO es un
+`DefinicionAgente`: es un envío programado, no reactivo — ver `recontacto/LEEME.md` para el
+porqué y dónde está construido de verdad.
 
 ## Crear un bot nuevo (sin tocar el código de nadie)
 

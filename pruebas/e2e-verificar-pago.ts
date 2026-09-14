@@ -22,7 +22,7 @@ import type { Guion } from "./fakes.js";
 
 const {
   instalarSupabaseFalso, instalarModeloFalso, instalarBoldFalso, boldResponderaEstado,
-  usarGuion, adaptadorFalso, enviados, registroDelModelo, sembrarMensajes, filasDe,
+  usarGuion, usarTemaOrquestador, adaptadorFalso, enviados, registroDelModelo, sembrarMensajes, filasDe,
   rpcsLlamados, consultasABold,
 } = await import("./fakes.js");
 
@@ -153,6 +153,10 @@ async function main() {
     caso.preparar();
     sembrarMensajes([]);
     usarGuion(GUION_VERIFICA);
+    // [2026-09-14] "ya hice el pago" es tema de PAGOS (verificar_pago vive en ese bot desde que
+    // se separó de ventas — ver src/agentes/pagos/agente.ts). Sin esto, el orquestador falso
+    // (default "reservas") manda al bot que no tiene la herramienta.
+    usarTemaOrquestador("pagos");
 
     console.log("\n" + "─".repeat(92));
     console.log(`CASO ${caso.nombre}`);

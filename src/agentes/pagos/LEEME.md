@@ -1,8 +1,15 @@
-# Bot de Pagos — sin construir todavía (pero el pago ya funciona, y ya se confirma solo)
+# Bot de Pagos
 
-Esta carpeta sigue reservada para un bot de Pagos propio. **No existe todavía y no es urgente**:
-el tema `pagos` lo atiende el bot de **ventas** (ver `src/agentes/ventas/agente.ts`, campo
-`atiende`), y ahí vive la herramienta que entrega los links.
+[2026-09-14] Ya está construido — ver `agente.ts` y `prompt.md` (`atiende: ["pagos"]`). Sus tres
+herramientas (`preguntar_forma_de_pago`, `enviar_datos_pago`, `verificar_pago`) siguen viviendo
+en `src/agentes/ventas/herramientas/pago.ts` — no se movieron, este `agente.ts` las importa,
+misma convención de siempre (ver "Herramientas que usan dos bots" en `../LEEME.md`). Están
+marcadas con `agenteDueno: "pagos"` (ver `src/core/tools/types.ts`) porque a veces las llama
+`reservas` o `postventa` en el mismo turno que registran una reserva nueva — eso es lo que deja
+la conversación "pegada" acá para el mensaje siguiente del cliente.
+
+Todo lo de abajo (versión 1/2, el webhook, Bold vs LobbyPMS) sigue vigente tal cual — es sobre
+CÓMO funciona el cobro, no sobre qué bot lo atiende.
 
 ## Qué se decidió el 2026-09-10
 
@@ -95,7 +102,3 @@ que está andando hoy.
 Cuando el bot sí cree reservas en LobbyPMS, vale la pena volver a mirar esto: con el `GET` de
 LobbyPMS el webhook de Bold dejaría de hacer falta.
 
-## Para construir el bot de pagos propio
-
-Seguí los pasos de `../LEEME.md`, sacá `"pagos"` del `atiende` de ventas y llevate
-`herramientas/pago.ts` a esta carpeta.

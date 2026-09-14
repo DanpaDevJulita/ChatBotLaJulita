@@ -471,6 +471,26 @@ export function usarGuion(g: Guion): void {
   guionActual = g;
   hopsDelAgente = 0;
   registroDelModelo.length = 0;
+  temaOrquestadorFalso = "reservas"; // vuelve al default en cada caso — ver usarTemaOrquestador.
+}
+
+/**
+ * [2026-09-14] A qué agente manda el orquestador FALSO. Antes esto estaba hardcodeado siempre en
+ * "reservas" porque un solo bot (ventas) atendía "informacion", "reservas" y "pagos" a la vez —
+ * daba lo mismo a cuál de los tres mandara, el agente real era siempre el mismo. Ahora que
+ * `reservas` y `pagos` son bots propios con herramientas DISTINTAS (ver src/agentes/reservas/ y
+ * src/agentes/pagos/), una prueba que guioniza al modelo llamando `enviar_datos_pago` o
+ * `verificar_pago` necesita que el orquestador falso mande de verdad a "pagos" — si no, esas
+ * herramientas no están en el agente que corre y la prueba falla por una razón que no tiene nada
+ * que ver con lo que se quiere probar.
+ *
+ * Por default sigue en "reservas" (el comportamiento de siempre, para no tener que tocar todas
+ * las pruebas existentes) — las que necesiten otra cosa llaman `usarTemaOrquestador(...)`.
+ */
+let temaOrquestadorFalso: string = "reservas";
+
+export function usarTemaOrquestador(tema: string): void {
+  temaOrquestadorFalso = tema;
 }
 
 function respuestaComoCompletion(r: Respuesta) {
@@ -499,10 +519,11 @@ export function instalarModeloFalso(): void {
         const tools: string[] = (params.tools ?? []).map((t: any) => t.function?.name).filter(Boolean);
         const toolChoice = params.tool_choice?.function?.name ?? null;
 
-        // El orquestador: siempre manda a "reservas" (que atiende el agente de ventas).
+        // El orquestador: manda al tema que fijó la prueba (ver usarTemaOrquestador, "reservas"
+        // por default).
         if (tools.includes("enrutar")) {
-          registroDelModelo.push("orquestador -> reservas");
-          return respuestaComoCompletion({ herramienta: "enrutar", args: { agente: "reservas", motivo: "prueba" } });
+          registroDelModelo.push(`orquestador -> ${temaOrquestadorFalso}`);
+          return respuestaComoCompletion({ herramienta: "enrutar", args: { agente: temaOrquestadorFalso, motivo: "prueba" } });
         }
 
         hopsDelAgente++;
