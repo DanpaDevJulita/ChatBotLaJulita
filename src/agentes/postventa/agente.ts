@@ -16,6 +16,9 @@ import { consultarPoliticasTool } from "../ventas/herramientas/politicas.js";
 // core/tools/types.ts): apenas corre, la conversación queda "pegada" a pagos para el siguiente
 // mensaje del cliente.
 import { preguntarFormaDePagoTool } from "../ventas/herramientas/pago.js";
+// [2026-09-15] Misma razón que en reservas/agente.ts: si esta conversación es de un cliente
+// conocido que vuelve a reservar una fecha nueva, no hay que pedirle los datos de cero.
+import { consultarClienteConocidoTool } from "../reservas/herramientas/clienteConocido.js";
 
 /**
  * Agente de POSTVENTA — atiende a quien ya tiene (o cree tener) una reserva: cambios,
@@ -35,6 +38,7 @@ export const agente: DefinicionAgente = {
     consultarPlanesTool,
     consultarFechasAlternativasTool,
     consultarAdicionalesTool,
+    consultarClienteConocidoTool,
     registrarDatosReservaTool,
     preguntarFormaDePagoTool,
     // [2026-09-13] Postventa es justo donde más se pregunta por esto ("¿puedo cambiar la

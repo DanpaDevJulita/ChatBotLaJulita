@@ -12,6 +12,9 @@ import { consultarPoliticasTool } from "../ventas/herramientas/politicas.js";
 // (reservas) — ver la restricción en runTurn.ts. El campo `agenteDueno` de la herramienta se
 // encarga de que, apenas corre, la conversación quede "pegada" a pagos para el mensaje siguiente.
 import { preguntarFormaDePagoTool } from "../ventas/herramientas/pago.js";
+// [2026-09-15] Esta sí es propia de reservas (no de ventas): reconocer a un cliente que ya
+// reservó antes, para no pedirle los datos de cero. Ver herramientas/clienteConocido.ts.
+import { consultarClienteConocidoTool } from "./herramientas/clienteConocido.js";
 
 /**
  * Agente de RESERVAS — el que concreta la venta: toma la fecha, el plan y los datos de cada
@@ -32,6 +35,7 @@ export const agente: DefinicionAgente = {
   herramientas: [
     consultarPlanesTool,
     consultarFechasAlternativasTool,
+    consultarClienteConocidoTool,
     registrarDatosReservaTool,
     preguntarFormaDePagoTool,
     // Para cuando, a mitad de dar los datos, el cliente pregunta "¿y si cancelo?" o "¿puedo

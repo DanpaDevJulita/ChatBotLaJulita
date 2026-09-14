@@ -405,3 +405,63 @@ export async function buscarReservasConfirmadasPorCelular(celular: string): Prom
     cliente_nombre: r.clientes?.nombre ?? null,
   }));
 }
+
+// --- Reservas: reconocer a un cliente que ya reservó antes -----------------------------------
+
+export interface ClienteConocido {
+  cliente_id: number;
+  nombre: string;
+  tipo_documento: string | null;
+  numero_documento: string;
+  celular: string | null;
+  correo: string | null;
+}
+
+/**
+ * [2026-09-14] Daniel probando en vivo: "con mi número ya había hecho más reservas, debería
+ * recordar información y en vez de volver a pedir datos, preguntar si los datos son correctos, y
+ * si no, editar." `registrar_datos_reserva` siempre pedía todo desde cero porque nada consultaba
+ * primero si ESE celular ya tenía un cliente guardado — el unique de `clientes` es
+ * `(tipo_documento_id, numero_documento)`, así que un cliente que vuelve a reservar se
+ * actualiza en la misma fila (no se duplica) en cuanto el bot sabe su documento, pero hasta ese
+ * momento el bot no tenía forma de encontrarlo por el celular solo.
+ *
+ * Mismo cruce por "últimos 10 dígitos" que `buscarReservasConfirmadasPorCelular` (evita fallar
+ * por "+57", espacios o guiones de más). Si el mismo celular aparece en más de un cliente (puede
+ * pasar: dos personas de una familia reservando con el mismo número), se devuelve el más
+ * reciente (mayor `id`) — es una mejor apuesta que un array que el modelo tendría que desambiguar
+ * él solo, y si no es la persona correcta, el cliente lo aclara y el bot pide los datos de cero.
+ *
+ * Devuelve `null` si no hay nada (cliente nuevo, o si Supabase falla) — quien llama trata eso
+ * como "pedile los datos normalmente", nunca como un error que frene el turno.
+ */
+export async function buscarClienteConocidoPorCelular(celular: string): Promise<ClienteConocido | null> {
+  if (!supabaseConfigured) return null;
+  const digitos = ultimosDigitos(celular, 10);
+  if (!digitos) return null;
+
+  const { data, error } = await supabase
+    .from("clientes")
+    .select("id, nombre, tipo_documento_id, numero_documento, celular, correo")
+    .ilike("celular", `%${digitos}%`)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[reservasRepo] buscarClienteConocidoPorCelular:", error.message);
+    return null;
+  }
+  if (!data) return null;
+
+  const tipoTexto = data.tipo_documento_id != null ? await obtenerTextoTipoDocumento(data.tipo_documento_id) : null;
+
+  return {
+    cliente_id: data.id,
+    nombre: data.nombre,
+    tipo_documento: tipoTexto,
+    numero_documento: data.numero_documento,
+    celular: data.celular ?? null,
+    correo: data.correo ?? null,
+  };
+}
