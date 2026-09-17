@@ -23,6 +23,37 @@ import { politica, politicasUnidas } from "../../../core/db/politicasRepo.js";
 const SIN_POLITICA_CARGADA =
   "Déjame confirmar ese detalle con el equipo de La Julita y te escribo enseguida 🙏";
 
+/**
+ * [2026-09-18] Las políticas completas (sobre todo tema="estadia" y "todo") pueden pasar los
+ * 2.000 caracteres en una sola respuesta — una pared de texto para lo que a veces era una
+ * pregunta puntual ("¿a qué hora es el check-in?"). Ver hallazgo de la simulación del
+ * 2026-09-15 (F01, D03). El texto SIGUE yendo completo y literal (nada se resume ni se
+ * reformula: sigue siendo `permitirRedaccion: false`), solo se reparte en dos burbujas de
+ * WhatsApp cuando es largo, cortando en el último salto de línea doble (borde entre secciones:
+ * "🕒 *Check-in*", "🛁 *Jacuzzi*", etc. — nunca a mitad de una viñeta o una frase).
+ */
+const LIMITE_POLITICA_UN_MENSAJE = 900;
+
+function partirPolitica(texto: string, limite = LIMITE_POLITICA_UN_MENSAJE): [string, string] {
+  if (texto.length <= limite) return [texto, ""];
+  // [2026-09-18 -> 2026-09-18] Bug real encontrado en la re-prueba: el texto que carga el
+  // equipo en la tabla `politicas` usa saltos de línea CRLF ("\r\n"), no LF ("\n") — se ve
+  // tal cual en la base. La primera versión de esto buscaba solo "\n\n" (LF LF), que un texto
+  // en CRLF nunca tiene, así que SIEMPRE caía al corte seco en el límite exacto — y ese corte
+  // seco partió la palabra "Fogata" por la mitad ("Fogat" | "a*...") en la prueba del
+  // 2026-09-16. La expresión regular de abajo encuentra un salto de línea doble sea cual sea
+  // el estilo (\r\n\r\n, \n\n, o mezclado) buscando TODAS las ocurrencias y quedándose con la
+  // última que no deje la primera parte demasiado corta.
+  const bordes = [...texto.matchAll(/\r?\n\r?\n/g)].map((m) => ({ inicio: m.index!, fin: m.index! + m[0].length }));
+  const dentroDelLimite = bordes.filter((b) => b.inicio <= limite);
+  const borde =
+    dentroDelLimite.length > 0 && dentroDelLimite[dentroDelLimite.length - 1].inicio >= limite * 0.3
+      ? dentroDelLimite[dentroDelLimite.length - 1] // el último borde antes del límite, si no queda muy al principio
+      : bordes.find((b) => b.inicio > limite); // si no hay uno decente, el próximo borde después del límite
+  if (!borde) return [texto, ""]; // sin ningún salto de línea doble reconocible: mejor no partir a ciegas
+  return [texto.slice(0, borde.inicio).trimEnd(), texto.slice(borde.fin).trim()];
+}
+
 export const consultarPoliticasTool: ToolDefinition = {
   name: "consultar_politicas",
   // El texto sale EXACTO: son condiciones comerciales, no material para redactar.
@@ -65,6 +96,8 @@ export const consultarPoliticasTool: ToolDefinition = {
       };
     }
 
+    const [primeraParte, resto] = partirPolitica(texto);
+
     return {
       result: {
         ok: true,
@@ -74,10 +107,12 @@ export const consultarPoliticasTool: ToolDefinition = {
         // (y sus montos siguen habilitados) sin volver a llamar la herramienta.
         texto,
         nota_para_el_agente:
-          "Este texto ya se le mandó al cliente TAL CUAL. No lo repitas ni lo resumas: si hace falta, " +
-          "sigue la conversación con una sola pregunta corta (por ejemplo, si le quedó alguna duda).",
+          "Este texto ya se le mandó al cliente TAL CUAL (en una o dos partes, si era largo). No lo " +
+          "repitas ni lo resumas: si hace falta, sigue la conversación con una sola pregunta corta " +
+          "(por ejemplo, si le quedó alguna duda).",
       },
-      reply_to_user: texto,
+      reply_to_user: primeraParte,
+      ...(resto ? { textoAdicional: resto } : {}),
     };
   },
 };

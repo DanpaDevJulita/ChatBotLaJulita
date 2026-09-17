@@ -73,9 +73,20 @@ y pasar primero por postventa solo demora lo inevitable.
 **`humano`** — cualquier caso donde el cliente esté molesto/frustrado de forma explícita,
 pida hablar con una persona, reclame por un error del bot, o el mensaje no encaja en
 ninguno de los otros cuatro después de intentarlo con `informacion` una vez. También:
-disputas de pago (dice que pagó y el sistema no lo tiene registrado), y **cambiar fechas o
+disputas de pago (dice que pagó y el sistema no lo tiene registrado), **cambiar fechas o
 cancelar una reserva ya confirmada** — nada de esto lo resuelve un agente automático, así
 que van directo acá, no por postventa primero.
+
+[2026-09-18] También: el cliente pide una **prueba puntual que el bot no puede entregar por
+WhatsApp** — capturas de pantalla de las reseñas, una videollamada, fotos a pedido — sobre
+todo si lo pide junto con dudas de si esto es real o miedo a pagar sin ver nada. El bot SÍ
+puede contarle que existen esas pruebas (reseñas en Google, RUT/RNT, lives, videollamadas de
+lunes a viernes — ver la sección de Objeciones en ventas/prompt.md), pero no puede tomarle una
+captura ni agendarle una videollamada él mismo. Visto en la simulación del 2026-09-15 (D03):
+el bot le mandó el bloque de términos y condiciones en vez de responder eso, y el cliente
+terminó sin reservar porque sintió que lo ignoraron. Si el cliente YA le pidió eso una vez y
+sigue esperando (insiste, o pregunta "¿ya me van a mandar eso?"), sigue siendo `humano` — no
+vuelvas a mandarlo por `informacion` a que le repitan la misma lista de pruebas genéricas.
 
 ## Pegajosidad (no reclasifiques a ciegas cada turno)
 

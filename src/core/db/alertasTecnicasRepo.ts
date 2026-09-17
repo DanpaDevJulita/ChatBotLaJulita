@@ -1,4 +1,5 @@
 import { supabase, supabaseConfigured } from "./supabase.js";
+import { abrirTicketTecnico } from "./ticketsRepo.js";
 
 /**
  * [2026-09-13] Throttle de avisos técnicos al equipo de DESARROLLO — ver sql/alertas-tecnicas.sql
@@ -60,4 +61,8 @@ export async function registrarAlerta(clave: string, detalle: string): Promise<v
   });
 
   if (error) console.error("[alertasTecnicasRepo] registrarAlerta:", error.message);
+
+  // Además del throttle del correo, dejamos un ticket en el panel para que la falla
+  // quede con estado y responsable y no se pierda en la bandeja de nadie.
+  await abrirTicketTecnico(clave, detalle);
 }

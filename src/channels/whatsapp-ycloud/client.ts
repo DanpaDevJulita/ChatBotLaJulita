@@ -2,14 +2,15 @@ import axios, { AxiosError, AxiosInstance } from "axios";
 
 /**
  * Cliente de bajo nivel para la API de YCloud — portado de
- * agente-ycloud-main/src/services/ycloudClient.ts, simplificado (por ahora texto, imagen y
- * descarga de media; documentos se agregan cuando los necesitemos).
+ * agente-ycloud-main/src/services/ycloudClient.ts, simplificado (por ahora solo texto e
+ * imagen; documentos y descarga de media se agregan cuando los necesitemos).
  */
 
 const YCLOUD_API_KEY = process.env.YCLOUD_API_KEY ?? "";
 const YCLOUD_FROM_PHONE_NUMBER = process.env.YCLOUD_FROM_PHONE_NUMBER ?? "";
 const YCLOUD_BASE_URL = process.env.YCLOUD_BASE_URL ?? "https://api.ycloud.com";
 const YCLOUD_DRY_RUN = process.env.YCLOUD_DRY_RUN === "true";
+const YCLOUD_CATALOG_ID = process.env.YCLOUD_CATALOG_ID ?? "";
 
 let client: AxiosInstance | null = null;
 
@@ -95,7 +96,17 @@ async function enviarUnTexto(target: string, text: string): Promise<{ id?: strin
     console.log(`[ycloud dry-run] a ${target}: ${text.slice(0, 80)}`);
     return { id: `dry-run-${Date.now()}` };
   }
-  const body = { from: YCLOUD_FROM_PHONE_NUMBER, to: target, type: "text", text: { body: text } };
+  // [2026-09-16] `preview_url: true` es lo que le pide a WhatsApp que genere la tarjeta de
+  // vista previa (imagen, título) cuando el texto trae un link — por ejemplo el video de
+  // YouTube de un plan. Sin este flag, la API de WhatsApp Business (a diferencia de WhatsApp
+  // normal entre personas) manda el link como texto plano, sin preview. Lo notó Daniel en
+  // pruebas reales: el link del video salía en verde/subrayado pero sin la miniatura.
+  const body = {
+    from: YCLOUD_FROM_PHONE_NUMBER,
+    to: target,
+    type: "text",
+    text: { body: text, preview_url: true },
+  };
   const res = await withRetry(() => getClient().post("/v2/whatsapp/messages", body), "sendText");
   return res.data ?? {};
 }
@@ -112,6 +123,28 @@ export async function sendImageMessage(target: string, imageUrl: string, caption
     image: { link: imageUrl, ...(caption ? { caption } : {}) },
   };
   const res = await withRetry(() => getClient().post("/v2/whatsapp/messages", body), "sendImage");
+  return res.data ?? {};
+}
+
+/**
+ * [2026-09-16] Video NATIVO de WhatsApp (type: "video"), no un link en un mensaje de texto.
+ * `videoUrl` tiene que ser la URL directa a un archivo .mp4 (o .3gp) público — WhatsApp la
+ * descarga él mismo — NO la página de YouTube: WhatsApp no reproduce videos de otras
+ * plataformas adentro de la app, solo archivos de video de verdad. Con esto el cliente ve la
+ * miniatura al toque y reproduce sin salir de WhatsApp. Límite de WhatsApp: 16 MB por video.
+ */
+export async function sendVideoMessage(target: string, videoUrl: string, caption?: string): Promise<{ id?: string }> {
+  if (YCLOUD_DRY_RUN) {
+    console.log(`[ycloud dry-run] video a ${target}: ${videoUrl}`);
+    return { id: `dry-run-video-${Date.now()}` };
+  }
+  const body = {
+    from: YCLOUD_FROM_PHONE_NUMBER,
+    to: target,
+    type: "video",
+    video: { link: videoUrl, ...(caption ? { caption } : {}) },
+  };
+  const res = await withRetry(() => getClient().post("/v2/whatsapp/messages", body), "sendVideo");
   return res.data ?? {};
 }
 
@@ -138,4 +171,135 @@ export async function descargarMedia(ref: { link?: string; mediaId?: string }): 
   );
   const mime = (res.headers?.["content-type"] as string) ?? "application/octet-stream";
   return { buffer: Buffer.from(res.data), mime };
+}
+
+/**
+ * [2026-09-15] Carousel template — usado SOLO para el módulo de promociones (ver
+ * src/core/marketing/promocionesBroadcast.ts y REFERENCIA-CAROUSEL-WHATSAPP.md). A diferencia
+ * de sendText/sendImage/sendVideo, esto NO es un mensaje libre: `templateName` tiene que ser el
+ * nombre EXACTO de una plantilla ya aprobada por Meta (registrada en la tabla
+ * `plantillas_carousel`), con el mismo número de tarjetas que trae `tarjetas` — si no calzan,
+ * YCloud rechaza el envío completo (por eso quien llama valida el conteo ANTES de invocar esto,
+ * ver promocionesBroadcast.ts).
+ *
+ * `precioTexto` solo aplica si la plantilla aprobada usa una variable `{{1}}` en el body de la
+ * tarjeta (recomendado para promociones, porque el precio/oferta cambia seguido y así no hay
+ * que re-aprobar la plantilla cada vez). `urlVariable` solo aplica si la plantilla trae un botón
+ * de tipo URL con variable — ver la nota de la sección 5 de REFERENCIA-CAROUSEL-WHATSAPP.md.
+ */
+export interface TarjetaCarousel {
+  imagenUrl: string;
+  precioTexto?: string;
+  urlVariable?: string;
+  /** Payload que WhatsApp devuelve en el webhook si el cliente toca el botón de respuesta
+   *  rápida de esta tarjeta (por ejemplo "promo_12") — no lo ve el cliente. */
+  quickReplyPayload?: string;
+}
+
+export async function sendCarouselTemplate(
+  target: string,
+  templateName: string,
+  tarjetas: TarjetaCarousel[],
+  idioma = "es"
+): Promise<{ id?: string }> {
+  if (YCLOUD_DRY_RUN) {
+    console.log(`[ycloud dry-run] carousel "${templateName}" a ${target}: ${tarjetas.length} tarjeta(s)`);
+    return { id: `dry-run-carousel-${Date.now()}` };
+  }
+
+  const cards = tarjetas.map((t, i) => {
+    const components: Record<string, unknown>[] = [
+      { type: "header", parameters: [{ type: "image", image: { link: t.imagenUrl } }] },
+    ];
+    if (t.precioTexto) {
+      components.push({ type: "body", parameters: [{ type: "text", text: t.precioTexto }] });
+    }
+    if (t.quickReplyPayload) {
+      components.push({
+        type: "button",
+        sub_type: "quick_reply",
+        index: 0,
+        parameters: [{ type: "payload", payload: t.quickReplyPayload }],
+      });
+    }
+    if (t.urlVariable) {
+      components.push({
+        type: "button",
+        sub_type: "url",
+        index: 1,
+        parameters: [{ type: "text", text: t.urlVariable }],
+      });
+    }
+    return { card_index: i, components };
+  });
+
+  const body = {
+    from: YCLOUD_FROM_PHONE_NUMBER,
+    to: target,
+    type: "template",
+    template: {
+      name: templateName,
+      language: { code: idioma, policy: "deterministic" },
+      components: [{ type: "carousel", cards }],
+    },
+  };
+  const res = await withRetry(() => getClient().post("/v2/whatsapp/messages", body), "sendCarouselTemplate");
+  return res.data ?? {};
+}
+
+/**
+ * [2026-09-15] Mensaje de CATÁLOGO (`interactive.type: "product_list"`) — la alternativa
+ * GRATIS al carrusel de pago: es un mensaje normal (no una plantilla), así que no cuesta nada
+ * mandarlo dentro de una conversación abierta, pero a cambio exige que los planes existan como
+ * "productos" en un catálogo de Meta conectado a este WhatsApp Business Account — ver
+ * REFERENCIA-CATALOGO-WHATSAPP.md para el paso a paso de esa parte (100% manual, en Meta
+ * Commerce Manager, el código no puede crearlo solo).
+ *
+ * `secciones` agrupa los productos que se muestran (ej. una sección "Planes recomendados") —
+ * cada `retailerId` tiene que ser EXACTAMENTE el SKU con el que se cargó ese plan en el
+ * catálogo (columna `planes.retailer_id`, ver sql/planes-retailer-id.sql).
+ */
+export interface SeccionCatalogo {
+  titulo: string;
+  retailerIds: string[];
+}
+
+export async function sendMultiProductMessage(
+  target: string,
+  body: string,
+  secciones: SeccionCatalogo[],
+  opciones?: { header?: string; footer?: string; catalogId?: string }
+): Promise<{ id?: string }> {
+  const catalogId = opciones?.catalogId || YCLOUD_CATALOG_ID;
+  if (!catalogId) {
+    throw new Error(
+      "Falta configurar YCLOUD_CATALOG_ID (.env) — sin eso no se puede mandar el mensaje de catálogo."
+    );
+  }
+  if (YCLOUD_DRY_RUN) {
+    const total = secciones.reduce((n, s) => n + s.retailerIds.length, 0);
+    console.log(`[ycloud dry-run] catálogo a ${target}: ${secciones.length} sección(es), ${total} producto(s)`);
+    return { id: `dry-run-catalogo-${Date.now()}` };
+  }
+
+  const body_ = {
+    from: YCLOUD_FROM_PHONE_NUMBER,
+    to: target,
+    type: "interactive",
+    interactive: {
+      type: "product_list",
+      ...(opciones?.header ? { header: { type: "text", text: opciones.header } } : {}),
+      body: { text: body },
+      ...(opciones?.footer ? { footer: { text: opciones.footer } } : {}),
+      action: {
+        catalog_id: catalogId,
+        sections: secciones.map((s) => ({
+          title: s.titulo,
+          product_items: s.retailerIds.map((id) => ({ product_retailer_id: id })),
+        })),
+      },
+    },
+  };
+  const res = await withRetry(() => getClient().post("/v2/whatsapp/messages", body_), "sendMultiProductMessage");
+  return res.data ?? {};
 }

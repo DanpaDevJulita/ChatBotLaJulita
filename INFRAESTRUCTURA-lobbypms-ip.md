@@ -83,3 +83,20 @@ Sin la IP autorizada, el bot pierde acceso a disponibilidad real de LobbyPMS y u
 público como respaldo (funciona, pero es menos preciso). No es un error que tumbe el bot — el
 código ya está pensado para seguir funcionando sin la API oficial — pero conviene tenerla
 autorizada siempre que se pueda.
+
+## Actualización 2026-09-16: la IP volvió a cambiar (como se esperaba)
+
+Confirmado con este mensaje en los logs de producción:
+
+```
+[lobbypms] API oficial no disponible (ip_no_autorizada): LobbyPMS rechazó la IP de este servidor.
+[HTTP 403 — ... — ["the 179.238.3.153 trying to access the API is not set as a valid ip"]]
+```
+
+La IP autorizada hasta ahora (`143.105.99.243`, del 2026-09-13) dejó de servir. **Nueva IP a
+autorizar en el panel de LobbyPMS: `179.238.3.153`.**
+
+Van dos cambios de IP en tres días de uso real — confirma que, mientras el bot siga corriendo
+desde la máquina de Daniel con IP dinámica del ISP, esto va a seguir pasando cada tanto (no es
+un bug, es el trade-off ya aceptado para el ambiente de pruebas — ver sección de arriba). El
+bot no se cae cuando pasa: sigue respondiendo con el motor público mientras se reautoriza.

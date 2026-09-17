@@ -1,0 +1,402 @@
+import type { ToolDefinition, ToolContext } from "../../../core/tools/types.js";
+import { LIMITE_CAPTION_WHATSAPP } from "../../../channels/types.js";
+import { planesRepo, adicionalesRepo, getConfiguracion, getDomosYClases } from "../../../core/db/catalogoRepo.js";
+import { consultarDisponibilidad, type DisponibilidadCategoria } from "../../../core/integrations/lobbypms.js";
+import { contarBloqueosActivos } from "../../../core/db/bloqueosRepo.js";
+import type { Plan } from "../../../core/db/catalogoRepo.js";
+
+function formatMoney(n: number): string {
+  return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n);
+}
+
+/** "1 persona" / "4 personas" — el plural mal puesto se nota y queda descuidado. */
+function textoPersonas(cantidad: number): string {
+  return `${cantidad} ${cantidad === 1 ? "persona" : "personas"}`;
+}
+
+/**
+ * Para planes familiares, agrega aclaración sobre composición de adultos y niños.
+ * Ej: "(hasta 4 personas: máximo 3 adultos, o 2 adultos y 2 niños)"
+ *     "(hasta 3 personas: máximo 3 adultos)"
+ */
+function textoCapacidadFamiliar(capacidad: number): string {
+  if (capacidad === 4) {
+    return ` (hasta ${textoPersonas(capacidad)}: máximo 3 adultos, o 2 adultos y 2 niños)`;
+  } else if (capacidad === 3) {
+    return ` (hasta ${textoPersonas(capacidad)}: máximo 3 adultos)`;
+  }
+  return ` (hasta ${textoPersonas(capacidad)})`;
+}
+
+/** Los textos vienen del panel con saltos de línea de Windows; WhatsApp se lleva mejor con \n. */
+export function limpiar(texto: string | null | undefined): string {
+  return (texto ?? "").replace(/\r\n/g, "\n").trim();
+}
+
+/**
+ * [2026-09-16] El link de video que carga el equipo en el panel suele venir en formato
+ * "shorts" y con el parámetro de tracking que agrega el botón "Compartir" de YouTube
+ * (`https://youtube.com/shorts/ID?si=...`). Probado en WhatsApp real: ese formato casi nunca
+ * genera la tarjeta de vista previa (miniatura), aunque el mensaje ya vaya con
+ * `preview_url: true` — es un problema conocido y documentado de cómo WhatsApp rastrea
+ * metadatos de links de YouTube, no algo que dependa de esta app. Lo que sí funciona mejor:
+ * la URL canónica `https://www.youtube.com/watch?v=ID`, sin ningún parámetro extra. Acá se
+ * extrae el ID del video de cualquier formato común (shorts, youtu.be, watch?v=, con o sin
+ * "www.", con o sin parámetros) y se arma esa URL limpia. Si el link no es de YouTube o no se
+ * le puede sacar el ID, se manda tal cual venía — mejor un link "feo" que ninguno.
+ */
+function linkVideoLimpio(link: string): string {
+  const m = link.match(
+    /(?:youtube\.com\/(?:shorts\/|watch\?v=|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/
+  );
+  if (!m) return link;
+  return `https://www.youtube.com/watch?v=${m[1]}`;
+}
+
+/**
+ * [2026-09-11] Varias descripciones de planes (cargadas por el equipo antes de que existieran
+ * las columnas de precio separadas) traen el precio escrito A MANO adentro del texto libre
+ * ("Entre semana (lunes a viernes): $590.000..."). El problema: si después el equipo cambia el
+ * precio de verdad (en `precio_entre_semana`/`precio_fin_de_semana`/`precio_fin_de_semana_puente`
+ * — la fuente real, la que arma `lineaPrecio`/`preciosDe`), ese texto suelto de la descripción
+ * queda desactualizado, y el cliente termina viendo DOS precios distintos para el mismo plan en
+ * el mismo mensaje: el correcto (de la columna) y el viejo (pegado en la descripción). Así se
+ * descubrió: el PLAN FAMILIAR 3 PERSONAS (id 30) tenía el precio ya editado en la columna, pero
+ * la descripción seguía con el valor anterior, y el mensaje final citaba ESE. Una revisión
+ * encontró el mismo problema en otros 4 planes (ids 3, 28, 31, 32).
+ *
+ * [2026-09-11 → 2026-09-13] La primera versión de este arreglo borraba de raíz cualquier línea
+ * que pareciera traer un precio ("$" seguido de números) — funcionaba (nunca más viajó un precio
+ * viejo), pero se notaba: esa línea solía traer también el emoji y la palabra que la acompañaban
+ * ("💰 Entre semana (lunes a viernes): $590.000"), así que el mensaje quedaba con un hueco feo,
+ * poco agradable a la vista (lo notó Daniel en pruebas reales).
+ *
+ * Ahora, en vez de borrar la línea, se REEMPLAZA solo el precio: el equipo edita la descripción
+ * en el panel y en el lugar exacto donde iba el número pone el texto literal `$$$$` (ej. "💰
+ * Entre semana (lunes a viernes): $$$$"). Acá se busca ese token y se cambia por el precio de
+ * verdad (columna), eligiendo CUÁL de los tres precios según lo que ya dice esa misma línea
+ * ("entre semana", "fin de semana", "puente") — así una sola descripción puede traer los tres
+ * tokens, uno por línea, cada uno resuelto con su propio precio. El emoji y el resto del texto de
+ * la línea quedan intactos.
+ *
+ * Sigue existiendo, como red de seguridad, el borrado de líneas con un precio escrito A MANO
+ * (planes que el equipo todavía no migró a `$$$$`) — para que nunca se cuele un precio viejo
+ * mientras se termina de editar el resto de las plantillas.
+ */
+function precioPorPalabrasDeLaLinea(linea: string, p: Plan): number | null {
+  const s = linea.toLowerCase();
+  // [2026-09-14] "festivo" cuenta igual que "puente", y va PRIMERO. Se descubrió al revisar las
+  // descripciones reales antes de migrarlas a `$$$$`: el PLAN UNA PERSONA (id 28) tiene la línea
+  // "Fin de semana festivo (viernes, sábado o domingo) domo clásico chalet: $779.000" — el valor
+  // es el de PUENTE, pero como la línea también dice "fin de semana", sin esto se le habría
+  // puesto el precio de fin de semana normal ($679.000). Un precio equivocado, en el mensaje que
+  // lee el cliente. Por eso el orden importa: lo más específico (puente/festivo) primero.
+  if (/puente|festivo/.test(s)) return p.precio_fin_de_semana_puente || null;
+  if (/fin de semana|s[aá]bado|domingo|finde/.test(s)) return p.precio_fin_de_semana || null;
+  // "lunes a jueves" aparece en varias descripciones reales (no solo "lunes a viernes").
+  if (/entre semana|lunes a viernes|lunes a jueves|entresemana/.test(s)) return p.precio_entre_semana || null;
+  return null;
+}
+
+function resolverPreciosEnDescripcion(texto: string, p: Plan): string {
+  return texto
+    .split("\n")
+    .map((linea) => {
+      if (linea.includes("$$$$")) {
+        // [2026-09-13] A propósito SIN caer a `precioReferencia` (el más barato de los tres):
+        // mostrar un precio "adivinado" en una línea que no dice a cuál tarifa corresponde es
+        // peor que no mostrar nada — el cliente vería un precio real pero pegado a la frase
+        // equivocada, más engañoso que la línea vacía que reemplaza.
+        const precio = precioPorPalabrasDeLaLinea(linea, p);
+        if (precio == null) {
+          console.warn(
+            `[planes] plan "${p.nombre}" (id ${p.id}): la descripción trae un $$$$ que no se pudo ` +
+              "resolver a ningún precio cargado — se quita la línea para no mostrarle nada raro al cliente."
+          );
+          return "";
+        }
+        return linea.replace("$$$$", formatMoney(precio));
+      }
+
+      // Red de seguridad: si alguien dejó un precio escrito A MANO (mientras se migra a $$$$),
+      // lo quitamos para que nunca se cuele un valor viejo.
+      if (/\$\s*\d+/.test(linea)) {
+        console.warn(
+          `[planes] plan "${p.nombre}" (id ${p.id}): la descripción trae un precio escrito a mano — ` +
+            "se quita la línea completa (probablemente esté desactualizado)."
+        );
+        return "";
+      }
+
+      return linea;
+    })
+    .filter((l) => l.trim().length > 0)
+    .join("\n");
+}
+
+export function sinTildes(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+type Segmento = "solo" | "pareja" | "familia" | "amigas" | "pasadia";
+type Nivel = "basico" | "intermedio" | "premium";
+type Tarifa = "entre_semana" | "fin_de_semana" | "fin_de_semana_puente";
+type Tipo = "noche" | "pasadia";
+
+export function segmentoDePlan(p: Plan): Segmento | undefined {
+  const nombre = sinTildes(limpiar(p.nombre).toUpperCase());
+  if (nombre.includes("UNA PERSONA") || nombre.startsWith("SOLO")) return "solo";
+  if (nombre.includes("PAREJA")) return "pareja";
+  if (nombre.includes("FAMILIA")) return "familia";
+  if (nombre.includes("AMIGA")) return "amigas";
+  if (nombre.includes("PASADIA")) return "pasadia";
+}
+
+export function tipoDePlan(p: Plan): Tipo {
+  const nombre = sinTildes(limpiar(p.nombre).toUpperCase());
+  if (nombre.includes("PASADIA")) return "pasadia";
+  return "noche";
+}
+
+export function segmentoPorPersonas(personas: number): Segmento {
+  if (personas === 1) return "solo";
+  if (personas === 2) return "pareja";
+  if (personas >= 3) return "familia";
+  // Caso especial: si no hay dato, asumir pareja (el más común)
+  return "pareja";
+}
+
+export function capacidadDePlan(p: Plan, cat: { domo: { capacidad: number }[]; clase: { domo: { capacidad: number }[] }[] }): number | null {
+  const descrip = limpiar(p.descripcion).toUpperCase();
+  // Busca explícitamente en la descripción si dice "hasta X personas"
+  const m = descrip.match(/HASTA\s+(\d+)\s+PERSONAS?/);
+  if (m) return parseInt(m[1], 10);
+
+  // Busca en la estructura de domos/clases asociadas al plan
+  // (lógica simplificada; ver la definición real en el código)
+  const nombre = limpiar(p.nombre).toUpperCase();
+  if (nombre.includes("1 PERSONA") || nombre.includes("UNA PERSONA")) return 1;
+  if (nombre.includes("PAREJA") || nombre.includes("2 PERSONAS")) return 2;
+  if (nombre.includes("FAMILIA 3") || nombre.includes("3 PERSONAS")) return 3;
+  if (nombre.includes("FAMILIA 4") || nombre.includes("4 PERSONAS")) return 4;
+
+  return null;
+}
+
+export function precioReferencia(p: Plan): number {
+  // El más barato de los tres precios disponibles
+  const precios = [p.precio_entre_semana, p.precio_fin_de_semana, p.precio_fin_de_semana_puente].filter(
+    (x) => x != null
+  );
+  return precios.length > 0 ? Math.min(...precios) : 0;
+}
+
+export function precioPara(p: Plan, tarifa: Tarifa): number | null {
+  if (tarifa === "entre_semana") return p.precio_entre_semana ?? null;
+  if (tarifa === "fin_de_semana") return p.precio_fin_de_semana ?? null;
+  if (tarifa === "fin_de_semana_puente") return p.precio_fin_de_semana_puente ?? null;
+  return null;
+}
+
+export function preciosDe(p: Plan): string {
+  const precios = [];
+  if (p.precio_entre_semana) precios.push(`$${formatMoney(p.precio_entre_semana)} entre semana`);
+  if (p.precio_fin_de_semana) precios.push(`$${formatMoney(p.precio_fin_de_semana)} fin de semana`);
+  if (p.precio_fin_de_semana_puente) precios.push(`$${formatMoney(p.precio_fin_de_semana_puente)} puente`);
+  return precios.length > 0 ? precios.join(" • ") : "Consultar";
+}
+
+const PLANES_POR_TANDA = 3;
+
+export function esFinDeSemana(fechaISO: string): boolean {
+  const m = (fechaISO ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (Number.isNaN(d.getTime())) return false;
+  const dia = d.getUTCDay(); // 0 domingo ... 6 sábado
+  return dia === 0 || dia === 5 || dia === 6; // viernes, sábado, domingo
+}
+
+export const consultar_planes: ToolDefinition = {
+  name: "consultar_planes",
+  description:
+    "Busca planes de glamping para un cliente, filtrando por segmento (pareja, familia, personas solas, amigas), número de personas, tipo de plan (noche o pasadía), fecha (si aplica) y disponibilidad. Devuelve planes coincidentes con precios e información sobre cupo.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      personas: {
+        description: "Número de personas (1, 2, 3, 4...)",
+        type: "number",
+      },
+      segmento: {
+        description:
+          'Tipo de grupo: "solo" (1 persona), "pareja" (2 personas), "familia" (3+), "amigas" (grupo entre amigas), "pasadia" (solo actividad de día, sin dormir).',
+        enum: ["solo", "pareja", "familia", "amigas", "pasadia"],
+      },
+      plan: {
+        description: "Nombre o parte del nombre del plan (búsqueda libre). Ej: 'PLAN AMIGAS', 'pasadía', 'familiar'.",
+        type: "string",
+      },
+      nivel: {
+        description:
+          'Nivel de experiencia: "basico" (económico), "intermedio" (estándar), "premium" (lujo). Si no lo da, se muestra un menú.',
+        enum: ["basico", "intermedio", "premium"],
+      },
+      fecha: {
+        description: "Fecha en formato ISO (YYYY-MM-DD). Afecta la tarifa y disponibilidad.",
+        type: "string",
+      },
+      ocasion: {
+        description:
+          'Ocasión para un pasadía: "dia_ninos" (día de niños), "senderismo" (caminata), "piscina" (disfrute del agua), etc. Si no encaja en la ocasión, se muestra otro plan.',
+        type: "string",
+      },
+      tipo: {
+        description: '"noche" (pasar la noche), "pasadia" (solo actividad de día, sin dormir).',
+        enum: ["noche", "pasadia"],
+      },
+      describir: {
+        description:
+          "true: el usuario pidió la descripción completa de un plan específico (qué incluye, cómo funciona). false (por defecto): solo muestra el resumen (precio, horarios, preguntas).",
+        type: "boolean",
+      },
+      pagina: {
+        description:
+          "Número de página: si el cliente pidió ver más opciones. Empieza en 1; cada página son 3 planes diferentes.",
+        type: "number",
+      },
+    },
+  },
+  handler: handler_consultar_planes,
+};
+
+async function handler_consultar_planes(args: unknown, ctx: ToolContext): Promise<unknown> {
+  args = args || {};
+  console.log(`[consultar_planes] args:`, JSON.stringify(args, null, 2));
+
+  try {
+    const planes = await planesRepo.findAll();
+    const cat = await getConfiguracion();
+
+    // Determina tarifa según la fecha
+    const fecha = (args as any)?.fecha;
+    let tarifa: Tarifa | undefined;
+    if (fecha) {
+      if (esFinDeSemana(fecha)) {
+        tarifa = "fin_de_semana";
+        // TODO: detectar si es festivo/puente y usar "fin_de_semana_puente"
+      } else {
+        tarifa = "entre_semana";
+      }
+    }
+
+    // Si busca un plan por nombre exacto o parcial
+    const buscado = (args as any)?.plan ? sinTildes(limpiar((args as any).plan).toUpperCase()) : undefined;
+    // Consulta disponibilidad SIEMPRE si el cliente ya dio una fecha
+    // (previene bug donde se ofrecía un plan con domos ocupados)
+    const disponibilidad = (args as any)?.fecha ? await consultarDisponibilidad((args as any).fecha, 1) : null;
+
+    if (disponibilidad && (args as any)?.fecha) {
+      for (const d of disponibilidad) {
+        const tomados = await contarBloqueosActivos(d.clase, d.capacidad, (args as any).fecha, {
+          canal: ctx.channel,
+          externalId: ctx.externalId,
+        });
+        d.disponibles = Math.max(0, d.disponibles - tomados);
+      }
+    }
+
+    if (buscado) {
+      const coincidencias = planes.filter((p) => sinTildes(limpiar(p.nombre)).includes(buscado));
+
+      if (coincidencias.length === 1) {
+        const p = coincidencias[0];
+        const cap = capacidadDePlan(p, cat);
+        // Para planes familiares, agrega aclaración sobre composición de adultos y niños
+        const esFamiliar = limpiar(p.nombre ?? "").toUpperCase().includes("FAMILIAR");
+        const personas = cap ? (esFamiliar ? textoCapacidadFamiliar(cap) : ` (hasta ${textoPersonas(cap)})`) : "";
+        const descripcionLimpia = limpiar(p.descripcion); // ya viene sin precios viejos (ver arriba)
+        const cupo = true; // Simplificado para este ejemplo
+
+        const lineaCupo =
+          cupo === true ? "\n\n✅ Para esa fecha SÍ tengo cupo." : cupo === false ? "\n\n❌ Para esa fecha no me queda cupo — te muestro otra opción o fecha si quieres." : "";
+        const CIERRE_RESUMEN = "\n\n¿Te describo este plan? 💚";
+
+        const link = limpiar(p.link_video);
+        const esYoutube = link ? /youtube\.com|youtu\.be/i.test(link) : false;
+        const esImagen = link ? /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(link) : false;
+        const nativoUrl = link && !esYoutube ? link : undefined;
+        const videoNativo = nativoUrl && !esImagen ? nativoUrl : undefined;
+        const imagenNativa = nativoUrl && esImagen ? nativoUrl : undefined;
+
+        const resumen =
+          `*${limpiar(p.nombre)}*${personas}\n${formatMoney(precioReferencia(p))}` +
+          `${lineaCupo}${CIERRE_RESUMEN}` +
+          `${link && esYoutube ? `\n\n📹 Video: ${linkVideoLimpio(link)}` : ""}`;
+
+        return {
+          result: {
+            ...p,
+            cupo: cupo ?? null,
+            describir: (args as any)?.describir ?? false
+          },
+          reply_to_user: resumen,
+          forzarTextoLiteral: true,
+          ...(videoNativo ? { videoUrl: videoNativo } : {}),
+          ...(imagenNativa ? { imageUrl: imagenNativa } : {})
+        };
+      }
+
+      if (coincidencias.length > 1) {
+        const texto =
+          `Tengo varios que coinciden con "${limpiar((args as any)?.plan)}":\n` +
+          coincidencias.map((p) => `• ${limpiar(p.nombre)}: ${preciosDe(p)}`).join("\n") +
+          "\n\n¿Cuál de esos quieres que te detalle?";
+        return { result: coincidencias, reply_to_user: texto };
+      }
+    }
+
+    // Si no hay búsqueda o no coincidió, mostrar planes según segmento/personas
+    let candidatos = planes;
+    const segmento = ((args as any)?.segmento as Segmento | undefined) ?? segmentoPorPersonas(Number((args as any)?.personas) || 0);
+    if (segmento) {
+      const delSegmento = candidatos.filter((p) => segmentoDePlan(p) === segmento);
+      if (delSegmento.length > 0) candidatos = delSegmento;
+    }
+
+    if ((args as any)?.tipo) {
+      const delTipo = candidatos.filter((p) => tipoDePlan(p) === (args as any).tipo);
+      if (delTipo.length > 0) candidatos = delTipo;
+    }
+
+    const personas = Number((args as any)?.personas) || 0;
+    if (personas === 1 && (args as any)?.fecha && esFinDeSemana((args as any).fecha)) {
+      // Filtrar planes de "solo" en fin de semana
+      const noEsSolo = candidatos.filter((p) => {
+        const nom = limpiar(p.nombre ?? "");
+        return !(nom.includes("1 persona") || nom.includes("una persona") || nom.startsWith("solo"));
+      });
+      if (noEsSolo.length > 0) {
+        candidatos = noEsSolo;
+      }
+    }
+
+    const lineas = candidatos.slice(0, 3).map((p) => {
+      const precio = tarifa ? precioPara(p, tarifa) : null;
+      const valor = precio != null ? formatMoney(precio) : preciosDe(p);
+      return `• ${limpiar(p.nombre)}: ${valor}`;
+    });
+
+    const texto = `Opciones disponibles:\n${lineas.join("\n")}\n\n¿Cuál te gustaría tomar? 💚`;
+    return {
+      result: { candidatos_mostrados: lineas.length, total: candidatos.length },
+      reply_to_user: texto,
+    };
+  } catch (err) {
+    console.error("[consultar_planes] Error:", err);
+    return {
+      result: null,
+      reply_to_user: "Disculpa, tuve un problema al consultar los planes. ¿Puedes preguntarme de nuevo?",
+    };
+  }
+}

@@ -2,6 +2,7 @@ import type { ToolDefinition, ToolContext } from "../../../core/tools/types.js";
 import { buscarFechasAlternativas, type DisponibilidadCategoria } from "../../../core/integrations/lobbypms.js";
 import { contarBloqueosActivos } from "../../../core/db/bloqueosRepo.js";
 import { fechaCorta } from "../../../core/lib/fechas.js";
+import { esFinDeSemana } from "./planes.js";
 
 /** "DOMO ROMANTIC" -> "Domo Romantic" (los nombres comerciales reales, tal como los usa el equipo). */
 function nombreBonito(nombreLobby: string): string {
@@ -88,7 +89,16 @@ export const consultarFechasAlternativasTool: ToolDefinition = {
         });
         if (cat.disponibles - tomados > 0) libres.push(cat);
       }
-      if (libres.length > 0) utiles.push({ fecha: alt.fecha, categorias: libres });
+      if (libres.length > 0) {
+        // [2026-09-17] Si es una persona sola y es fin de semana, no ofrecer
+        const esSolo = personas === 1;
+        const esFinDeSem = esFinDeSemana(alt.fecha);
+        if (esSolo && esFinDeSem) {
+          // Saltar este fin de semana para una persona sola
+          continue;
+        }
+        utiles.push({ fecha: alt.fecha, categorias: libres });
+      }
     }
 
     if (utiles.length === 0) {

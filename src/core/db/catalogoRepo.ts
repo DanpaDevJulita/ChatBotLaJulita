@@ -84,6 +84,20 @@ export interface Plan {
   // src/agentes/ventas/herramientas/planes.ts. Pedirla en un select falla con 42703.
   domos_id?: number[] | null;
   activo?: boolean;
+  // [2026-09-14 → 2026-09-16] Video de este plan (ver sql/planes-link-video.sql). NULL/undefined
+  // = todavía no tiene video cargado — el bot no menciona ninguno. Desde el 16/09 lo ideal es
+  // que traiga la URL DIRECTA de un archivo .mp4 público (por ejemplo subido al bucket
+  // "planes-videos" de Supabase Storage, ver sql/planes-videos-bucket.sql): así el bot lo manda
+  // como VIDEO NATIVO de WhatsApp, con miniatura y reproducción sin salir de la app. Si todavía
+  // trae un link de YouTube (formato viejo, antes de esta fecha), el bot sigue funcionando pero
+  // cae al modo anterior: el link metido en el texto, que no siempre saca miniatura y que al
+  // tocarlo SÍ saca al cliente de WhatsApp — ver planes.ts (`esYoutube` / `videoNativo`).
+  link_video?: string | null;
+  // [2026-09-15] SKU de este plan en el catálogo de Meta (Commerce Manager) conectado al
+  // WhatsApp Business Account — ver sql/planes-retailer-id.sql y
+  // REFERENCIA-CATALOGO-WHATSAPP.md. NULL = no cargado en el catálogo todavía: el bot no lo
+  // incluye en el mensaje de catálogo (nunca inventa un SKU).
+  retailer_id?: string | null;
 }
 
 export const planesRepo = {

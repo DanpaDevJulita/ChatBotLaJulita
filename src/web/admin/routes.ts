@@ -3,6 +3,8 @@ import { requireAdmin, login, logout, sessionStatus } from "./auth.js";
 import * as faqRepo from "../../core/db/faqRepo.js";
 import * as politicasRepo from "../../core/db/politicasRepo.js";
 import * as catalogoRepo from "../../core/db/catalogoRepo.js";
+import * as promocionesRepo from "../../core/db/promocionesRepo.js";
+import { enviarPromocionesCarousel, armarTarjetasPromociones } from "../../core/marketing/promocionesBroadcast.js";
 import * as mensajesRepo from "../../core/db/mensajesRepo.js";
 import { supabaseConfigured } from "../../core/db/supabase.js";
 
@@ -104,6 +106,15 @@ function soloColumnasDePlan(body: any) {
     precio_entre_semana: numeroOnulo(body?.precio_entre_semana),
     precio_fin_de_semana: numeroOnulo(body?.precio_fin_de_semana),
     precio_fin_de_semana_puente: numeroOnulo(body?.precio_fin_de_semana_puente),
+    // [2026-09-14 → 2026-09-16] Video de este plan — ver sql/planes-link-video.sql. Vacío/no
+    // enviado = null: el bot no manda ningún video para ese plan. Desde el 16/09, acá va de
+    // preferencia la URL directa del archivo .mp4 (por ejemplo del bucket "planes-videos" de
+    // Supabase Storage — ver sql/planes-videos-bucket.sql), no el link de la página de YouTube:
+    // así el bot lo manda como video nativo de WhatsApp en vez de un link de texto.
+    link_video: body?.link_video ? String(body.link_video).trim() : null,
+    // [2026-09-15] SKU de este plan en el catálogo de Meta — ver sql/planes-retailer-id.sql y
+    // REFERENCIA-CATALOGO-WHATSAPP.md. Vacío = el bot no lo incluye en el mensaje de catálogo.
+    retailer_id: body?.retailer_id ? String(body.retailer_id).trim() : null,
     activo: body?.activo !== false,
   };
   if (body?.id != null && body.id !== "") fila.id = Number(body.id);
@@ -218,4 +229,123 @@ adminApiRouter.get("/conversaciones", async (_req, res) => {
 
 adminApiRouter.get("/conversaciones/:canal/:externalId", async (req, res) => {
   res.json(await mensajesRepo.listMensajes(req.params.canal, req.params.externalId));
+});
+
+// --- Promociones (carousel de WhatsApp) -----------------------------------------------------
+// [2026-09-15] Ver REFERENCIA-MODULO-PROMOCIONES.md. El carrusel se manda SOLO desde acá (botón
+// "Enviar campaña" más abajo) — nunca automático durante una conversación normal del bot.
+function soloColumnasDePromocion(body: any) {
+  const fila: Record<string, unknown> = {
+    nombre: String(body?.nombre ?? "").trim(),
+    texto_tarjeta: String(body?.texto_tarjeta ?? "").trim(),
+    imagen_url: String(body?.imagen_url ?? "").trim(),
+    boton_texto: body?.boton_texto ? String(body.boton_texto).trim() : "Quiero esta promo",
+    boton_url: body?.boton_url ? String(body.boton_url).trim() : null,
+    orden: body?.orden === "" || body?.orden == null ? 0 : Number(body.orden),
+    activa: body?.activa !== false,
+  };
+  if (body?.id != null && body.id !== "") fila.id = Number(body.id);
+  if (!fila.nombre) throw new Error("El nombre de la promoción es obligatorio");
+  if (!fila.texto_tarjeta) throw new Error("El texto de la tarjeta es obligatorio");
+  if ((fila.texto_tarjeta as string).length > 160) {
+    throw new Error("El texto de la tarjeta no puede pasar de 160 caracteres (límite de WhatsApp)");
+  }
+  if (!fila.imagen_url) throw new Error("La foto de la promoción es obligatoria");
+  return fila;
+}
+
+adminApiRouter.get("/promociones", async (_req, res) => {
+  res.json(await promocionesRepo.promocionesRepo.list());
+});
+
+adminApiRouter.put("/promociones", async (req, res) => {
+  try {
+    const guardado = await promocionesRepo.promocionesRepo.upsert(soloColumnasDePromocion(req.body) as any);
+    res.json({ ok: true, data: guardado });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+adminApiRouter.delete("/promociones/:id", async (req, res) => {
+  try {
+    await promocionesRepo.promocionesRepo.remove(Number(req.params.id));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+// --- Plantillas de carousel (registro de lo que YA aprobó Meta) ----------------------------
+function soloColumnasDePlantillaCarousel(body: any) {
+  const fila: Record<string, unknown> = {
+    nombre_plantilla: String(body?.nombre_plantilla ?? "").trim(),
+    idioma: body?.idioma ? String(body.idioma).trim() : "es",
+    cantidad_tarjetas: Number(body?.cantidad_tarjetas),
+    incluye_boton_url: body?.incluye_boton_url !== false,
+    activa: body?.activa !== false,
+  };
+  if (body?.id != null && body.id !== "") fila.id = Number(body.id);
+  if (!fila.nombre_plantilla) throw new Error("El nombre de la plantilla es obligatorio");
+  const cantidad = fila.cantidad_tarjetas as number;
+  if (!Number.isFinite(cantidad) || cantidad < 2 || cantidad > 10) {
+    throw new Error("La cantidad de tarjetas tiene que ser un número entre 2 y 10 (límite de WhatsApp)");
+  }
+  return fila;
+}
+
+adminApiRouter.get("/plantillas-carousel", async (_req, res) => {
+  res.json(await promocionesRepo.plantillasCarouselRepo.list());
+});
+
+adminApiRouter.put("/plantillas-carousel", async (req, res) => {
+  try {
+    const guardado = await promocionesRepo.plantillasCarouselRepo.upsert(soloColumnasDePlantillaCarousel(req.body) as any);
+    res.json({ ok: true, data: guardado });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+adminApiRouter.delete("/plantillas-carousel/:id", async (req, res) => {
+  try {
+    await promocionesRepo.plantillasCarouselRepo.remove(Number(req.params.id));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+// --- Enviar campaña de promociones -----------------------------------------------------------
+// Antes de mandar nada de verdad, el panel puede pedir esta "vista previa" para saber si lo que
+// hay activo hoy calza con la plantilla elegida (mismo chequeo que hace el envío real, sin
+// gastar ningún mensaje).
+adminApiRouter.post("/promociones/vista-previa", async (req, res) => {
+  try {
+    const nombrePlantilla = String(req.body?.plantilla_nombre ?? "").trim();
+    const { plantilla, promociones } = await armarTarjetasPromociones(nombrePlantilla);
+    res.json({
+      ok: true,
+      plantilla: plantilla.nombre_plantilla,
+      cantidadTarjetas: plantilla.cantidad_tarjetas,
+      promociones: promociones.map((p) => ({ id: p.id, nombre: p.nombre })),
+    });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+adminApiRouter.post("/promociones/enviar", async (req, res) => {
+  try {
+    const nombrePlantilla = String(req.body?.plantilla_nombre ?? "").trim();
+    const destinatarios = Array.isArray(req.body?.destinatarios) ? req.body.destinatarios.map(String) : [];
+    const resultado = await enviarPromocionesCarousel(nombrePlantilla, destinatarios);
+    res.json({ ok: true, data: resultado });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+adminApiRouter.get("/promociones/envios", async (_req, res) => {
+  res.json(await promocionesRepo.listEnviosPromociones());
 });

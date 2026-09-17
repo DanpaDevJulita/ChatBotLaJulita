@@ -60,6 +60,9 @@ async function init() {
   cargarFechasBloqueadas();
   cargarFaq();
   cargarConversaciones();
+  cargarPromociones();
+  cargarPlantillasCarousel();
+  cargarEnviosPromociones();
 }
 
 function setupTabs() {
@@ -94,9 +97,10 @@ function filaPlan(p) {
   const semana = campoNumero(p.precio_entre_semana ?? "");
   const finde = campoNumero(p.precio_fin_de_semana ?? "");
   const puente = campoNumero(p.precio_fin_de_semana_puente ?? "");
+  const retailerId = campoTexto(p.retailer_id || "");
   const activo = campoCheckbox(p.activo !== false);
 
-  [nombre, descripcion, semana, finde, puente, activo].forEach((el) => {
+  [nombre, descripcion, semana, finde, puente, retailerId, activo].forEach((el) => {
     const td = document.createElement("td");
     td.appendChild(el);
     tr.appendChild(td);
@@ -114,6 +118,7 @@ function filaPlan(p) {
           precio_entre_semana: semana.value === "" ? null : Number(semana.value),
           precio_fin_de_semana: finde.value === "" ? null : Number(finde.value),
           precio_fin_de_semana_puente: puente.value === "" ? null : Number(puente.value),
+          retailer_id: retailerId.value || null,
           activo: activo.checked,
         });
         showToast("Plan guardado");
@@ -151,6 +156,7 @@ document.addEventListener("DOMContentLoaded", () => {
         precio_fin_de_semana_puente: form.get("precio_fin_de_semana_puente")
           ? Number(form.get("precio_fin_de_semana_puente"))
           : null,
+        retailer_id: form.get("retailer_id") || null,
         descripcion: form.get("descripcion"),
         activo: true,
       });
@@ -450,6 +456,259 @@ async function mostrarConversacion(canal, externalId) {
   if (!mensajes || mensajes.length === 0) {
     view.innerHTML = '<div class="empty-state">Sin mensajes.</div>';
   }
+}
+
+// --- Promociones (carousel de WhatsApp) -----------------------------------------------------
+// [2026-09-15] Ver REFERENCIA-MODULO-PROMOCIONES.md. Esto NO manda nada solo: cada tarjeta se
+// guarda acá, y el envío real solo pasa cuando alguien aprieta "Enviar campaña" más abajo.
+async function cargarPromociones() {
+  const items = await api.get("/admin/api/promociones");
+  const tbody = document.getElementById("promociones-body");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  (items || []).forEach((p) => tbody.appendChild(filaPromocion(p)));
+}
+
+function filaPromocion(p) {
+  const tr = document.createElement("tr");
+  const nombre = campoTexto(p.nombre);
+  const texto = campoTextarea(p.texto_tarjeta || "");
+  const imagen = campoTexto(p.imagen_url || "");
+  const botonUrl = campoTexto(p.boton_url || "");
+  const orden = campoNumero(p.orden ?? 0);
+  const activa = campoCheckbox(p.activa !== false);
+
+  [nombre, texto, imagen, botonUrl, orden, activa].forEach((el) => {
+    const td = document.createElement("td");
+    td.appendChild(el);
+    tr.appendChild(td);
+  });
+
+  const tdAcciones = document.createElement("td");
+  tdAcciones.className = "row-actions";
+  tdAcciones.appendChild(
+    botonAccion("Guardar", "btn primary", async () => {
+      try {
+        await api.send("PUT", "/admin/api/promociones", {
+          id: p.id,
+          nombre: nombre.value,
+          texto_tarjeta: texto.value,
+          imagen_url: imagen.value,
+          boton_url: botonUrl.value || null,
+          orden: orden.value === "" ? 0 : Number(orden.value),
+          activa: activa.checked,
+        });
+        showToast("Promoción guardada");
+        cargarPromociones();
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    })
+  );
+  tdAcciones.appendChild(
+    botonAccion("Borrar", "btn danger", async () => {
+      if (!confirm(`¿Borrar la promoción "${p.nombre}"?`)) return;
+      try {
+        await api.send("DELETE", `/admin/api/promociones/${p.id}`);
+        showToast("Promoción borrada");
+        cargarPromociones();
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    })
+  );
+  tr.appendChild(tdAcciones);
+  return tr;
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const form = document.getElementById("promociones-add-form");
+  if (!form) return;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = new FormData(e.target);
+    try {
+      await api.send("PUT", "/admin/api/promociones", {
+        nombre: data.get("nombre"),
+        texto_tarjeta: data.get("texto_tarjeta"),
+        imagen_url: data.get("imagen_url"),
+        boton_url: data.get("boton_url") || null,
+        orden: data.get("orden") ? Number(data.get("orden")) : 0,
+        activa: true,
+      });
+      e.target.reset();
+      showToast("Promoción agregada");
+      cargarPromociones();
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  });
+});
+
+// --- Plantillas de carousel (registro de lo que ya aprobó Meta) -----------------------------
+let plantillasCarouselCache = [];
+
+async function cargarPlantillasCarousel() {
+  const items = await api.get("/admin/api/plantillas-carousel");
+  plantillasCarouselCache = items || [];
+  const tbody = document.getElementById("plantillas-carousel-body");
+  if (tbody) {
+    tbody.innerHTML = "";
+    plantillasCarouselCache.forEach((p) => tbody.appendChild(filaPlantillaCarousel(p)));
+  }
+  const select = document.getElementById("promo-broadcast-plantilla");
+  if (select) {
+    const actual = select.value;
+    select.innerHTML = "";
+    plantillasCarouselCache
+      .filter((p) => p.activa !== false)
+      .forEach((p) => select.appendChild(new Option(`${p.nombre_plantilla} (${p.cantidad_tarjetas} tarjetas)`, p.nombre_plantilla)));
+    if (actual) select.value = actual;
+  }
+}
+
+function filaPlantillaCarousel(p) {
+  const tr = document.createElement("tr");
+  const nombre = campoTexto(p.nombre_plantilla);
+  const cantidad = campoNumero(p.cantidad_tarjetas);
+  const idioma = campoTexto(p.idioma || "es");
+  const tieneBoton = document.createElement("select");
+  tieneBoton.appendChild(new Option("Sí", "true"));
+  tieneBoton.appendChild(new Option("No", "false"));
+  tieneBoton.value = p.incluye_boton_url === false ? "false" : "true";
+  const activa = campoCheckbox(p.activa !== false);
+
+  [nombre, cantidad, idioma, tieneBoton, activa].forEach((el) => {
+    const td = document.createElement("td");
+    td.appendChild(el);
+    tr.appendChild(td);
+  });
+
+  const tdAcciones = document.createElement("td");
+  tdAcciones.className = "row-actions";
+  tdAcciones.appendChild(
+    botonAccion("Guardar", "btn primary", async () => {
+      try {
+        await api.send("PUT", "/admin/api/plantillas-carousel", {
+          id: p.id,
+          nombre_plantilla: nombre.value,
+          cantidad_tarjetas: Number(cantidad.value),
+          idioma: idioma.value,
+          incluye_boton_url: tieneBoton.value === "true",
+          activa: activa.checked,
+        });
+        showToast("Plantilla guardada");
+        cargarPlantillasCarousel();
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    })
+  );
+  tdAcciones.appendChild(
+    botonAccion("Borrar", "btn danger", async () => {
+      if (!confirm(`¿Borrar la plantilla "${p.nombre_plantilla}"?`)) return;
+      try {
+        await api.send("DELETE", `/admin/api/plantillas-carousel/${p.id}`);
+        showToast("Plantilla borrada");
+        cargarPlantillasCarousel();
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    })
+  );
+  tr.appendChild(tdAcciones);
+  return tr;
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const form = document.getElementById("plantillas-carousel-add-form");
+  if (!form) return;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = new FormData(e.target);
+    try {
+      await api.send("PUT", "/admin/api/plantillas-carousel", {
+        nombre_plantilla: data.get("nombre_plantilla"),
+        cantidad_tarjetas: Number(data.get("cantidad_tarjetas")),
+        idioma: data.get("idioma") || "es",
+        incluye_boton_url: data.get("incluye_boton_url") === "true",
+        activa: true,
+      });
+      e.target.reset();
+      showToast("Plantilla registrada");
+      cargarPlantillasCarousel();
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  });
+});
+
+// --- Enviar campaña de promociones -----------------------------------------------------------
+function destinatariosDelTextarea() {
+  const texto = document.getElementById("promo-broadcast-destinatarios").value;
+  return texto
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const btnRevisar = document.getElementById("promo-broadcast-revisar");
+  const btnEnviar = document.getElementById("promo-broadcast-enviar");
+  const resultado = document.getElementById("promo-broadcast-resultado");
+  if (!btnRevisar || !btnEnviar) return;
+
+  btnRevisar.addEventListener("click", async () => {
+    const plantilla_nombre = document.getElementById("promo-broadcast-plantilla").value;
+    resultado.textContent = "Revisando...";
+    try {
+      const r = await api.send("POST", "/admin/api/promociones/vista-previa", { plantilla_nombre });
+      resultado.textContent =
+        `✅ Todo listo: la plantilla "${r.plantilla}" (${r.cantidadTarjetas} tarjetas) calza con las promociones activas:\n` +
+        r.promociones.map((p) => `  • ${p.nombre}`).join("\n");
+    } catch (err) {
+      resultado.textContent = `❌ ${err.message}`;
+    }
+  });
+
+  btnEnviar.addEventListener("click", async () => {
+    const plantilla_nombre = document.getElementById("promo-broadcast-plantilla").value;
+    const destinatarios = destinatariosDelTextarea();
+    if (destinatarios.length === 0) {
+      showToast("Pega al menos un número de destino", true);
+      return;
+    }
+    if (!confirm(`¿Enviar la campaña "${plantilla_nombre}" a ${destinatarios.length} número(s)?`)) return;
+    resultado.textContent = "Enviando...";
+    try {
+      const r = await api.send("POST", "/admin/api/promociones/enviar", { plantilla_nombre, destinatarios });
+      const d = r.data;
+      resultado.textContent =
+        `Campaña enviada: ${d.exitosos} exitoso(s), ${d.fallidos} fallido(s) de ${d.resultados.length}.\n` +
+        d.resultados
+          .filter((x) => !x.ok)
+          .map((x) => `  ❌ ${x.destinatario}: ${x.error}`)
+          .join("\n");
+      showToast("Campaña enviada");
+      cargarEnviosPromociones();
+    } catch (err) {
+      resultado.textContent = `❌ ${err.message}`;
+      showToast(err.message, true);
+    }
+  });
+});
+
+async function cargarEnviosPromociones() {
+  const envios = await api.get("/admin/api/promociones/envios");
+  const tbody = document.getElementById("promociones-envios-body");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  (envios || []).forEach((e) => {
+    const tr = document.createElement("tr");
+    const fecha = new Date(e.creado_en).toLocaleString("es-CO");
+    tr.innerHTML = `<td>${fecha}</td><td>${e.plantilla_nombre}</td><td>${e.total_destinatarios}</td><td>${e.total_exitosos}</td><td>${e.total_fallidos}</td>`;
+    tbody.appendChild(tr);
+  });
 }
 
 // --- Helpers de campos de tabla ------------------------------------------------------------

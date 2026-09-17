@@ -27,6 +27,64 @@ export interface ToolResult {
    * siguiente), así que una herramienta solo debe ponerlo cuando de verdad haga falta encadenar.
    */
   forzarSiguienteHerramienta?: string;
+  /**
+   * [2026-09-16] URL directa a un archivo de video (mp4) para mandar como VIDEO NATIVO de
+   * WhatsApp — no un link de YouTube pegado en el texto. La diferencia importa: un link de
+   * YouTube en texto depende de que WhatsApp logre rastrear la miniatura (nada garantizado, y
+   * en la práctica falla seguido — ver el historial de bugs en planes.ts) y, aunque funcione,
+   * al tocarlo el cliente SALE de WhatsApp y abre YouTube. Un video nativo (este campo) llega
+   * con su propia miniatura siempre, y se reproduce ADENTRO de WhatsApp sin salir de la app.
+   * runTurn.ts lo manda con `adapter.send({ videoUrl, text })` aparte del texto normal, así que
+   * no pasa por la verificación de cifras ni por la redacción libre del modelo — es un archivo,
+   * no texto que el modelo pueda inventar o alterar.
+   */
+  videoUrl?: string;
+  /**
+   * [2026-09-17] Igual que `videoUrl` pero para una IMAGEN nativa (jpg/png/webp): para los planes
+   * que en el panel tienen una imagen en vez de video. runTurn.ts la manda con
+   * `adapter.send({ imageUrl, text })` aparte del texto normal.
+   */
+  imageUrl?: string;
+  /**
+   * [2026-09-15] Mensaje de catálogo de WhatsApp (gratis, NO es plantilla de Marketing — ver
+   * REFERENCIA-CATALOGO-WHATSAPP.md). `runTurn.ts` lo manda con `adapter.send({ catalogo })`
+   * aparte del texto normal, DESPUÉS de la respuesta (y del video, si también hay). Cada
+   * `retailerIds` tiene que venir de `planes.retailer_id` ya cargado — quien arma esto nunca
+   * debe inventar un SKU que no exista en la base.
+   */
+  catalogoWhatsApp?: {
+    body: string;
+    header?: string;
+    footer?: string;
+    secciones: { titulo: string; retailerIds: string[] }[];
+  };
+  /**
+   * [2026-09-17] Fuerza texto LITERAL para esta llamada puntual, aunque la herramienta tenga
+   * `permitirRedaccion: true` a nivel general (ver ToolDefinition.permitirRedaccion). Por qué
+   * hace falta un escape así: `consultar_planes` necesita redacción libre para el menú de
+   * experiencias y la escalera de 3 planes (ahí sí conviene el tono cálido y variado de una
+   * asesora) — pero en el DETALLE de un plan puntual la redacción libre ya causó tres bugs
+   * reales, uno detrás de otro: mostró la descripción completa en vez de la corta, desordenó
+   * video y texto, y la última vez reescribió la lista "Incluye" sin los emojis que se le
+   * pusieron a propósito Y encima repitió el link del video nativo en texto (que
+   * `result`/`texto_base` nunca tienen — el modelo lo reconstruyó él solo, probablemente
+   * copiándolo de un turno anterior de la misma charla). Ya no vale la pena perseguir cada
+   * síntoma nuevo: cuando el texto que arma la herramienta importa cifra por cifra, línea por
+   * línea, la única garantía real es no pasarlo por el modelo. Con este campo en `true`,
+   * runTurn.ts manda `reply_to_user` tal cual, igual que si la herramienta entera tuviera
+   * `permitirRedaccion: false`, sin tocar el resto de las respuestas de la misma herramienta.
+   */
+  forzarTextoLiteral?: boolean;
+  /**
+   * [2026-09-18] Segundo mensaje de WhatsApp, para cuando `reply_to_user` es un texto LITERAL
+   * largo (políticas, términos) que se lee mejor partido en dos burbujas que en una sola pared
+   * de texto. NO es para textos con redacción libre (el modelo ya controla su propio largo) ni
+   * para nada que dependa de un video (ver LIMITE_CAPTION_WHATSAPP / partirParaCaption en
+   * enviar.ts, que resuelve el caso del video con su propio mecanismo). runTurn.ts lo manda
+   * como un `enviarSeguro` aparte, DESPUÉS de `reply_to_user`, solo cuando la herramienta no
+   * usó redacción libre — mismo criterio que `forzarTextoLiteral`.
+   */
+  textoAdicional?: string;
 }
 
 export interface ToolDefinition {

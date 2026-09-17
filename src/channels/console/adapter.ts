@@ -17,6 +17,11 @@ export function createConsoleAdapter(): {
     async send(msg: OutboundMessage) {
       console.log(`\nBot (La Julita): ${msg.text ?? ""}`);
       if (msg.imageUrl) console.log(`  [imagen: ${msg.imageUrl}]`);
+      if (msg.videoUrl) console.log(`  [video: ${msg.videoUrl}]`);
+      if (msg.catalogo) {
+        const total = msg.catalogo.secciones.reduce((n, s) => n + s.retailerIds.length, 0);
+        console.log(`  [catálogo: ${msg.catalogo.secciones.length} sección(es), ${total} producto(s) — ${msg.catalogo.body}]`);
+      }
       console.log("");
     },
   };

@@ -5,6 +5,11 @@ import { bloqueosPendientes, confirmarBloqueo } from "../db/bloqueosRepo.js";
 import { cancelarLiberacion } from "../queue/bloqueoQueue.js";
 import { resolverEscalamiento, conversacionesEscaladas } from "../db/estadoRepo.js";
 import { crearReservaRealDesdeBloqueo } from "./reservaLobby.js";
+// [2026-09-17] Reportes de fallas ("corrige ...") y historial de enseñanzas (/aprende) → tabla
+// `tickets` del panel. Quién puede hacerlo se marca en la tabla `users` del panel
+// (sql/users-bot-corrige.sql); el .env queda como respaldo.
+import { abrirTicketReportado, abrirTicketEnsenanza } from "../db/ticketsRepo.js";
+import { permisosDeNumero } from "../db/usuariosPanelRepo.js";
 
 /**
  * Comandos del equipo por el mismo WhatsApp del bot: sirven para enseñarle cosas en caliente
@@ -120,10 +125,99 @@ export interface ResultadoComando {
   etiquetaParaLog?: string;
 }
 
-/** ¿Este número puede darle órdenes al bot ahora mismo? */
+/**
+ * [2026-09-17] Números de REPORTE_FALLAS_NUMBERS: solo pueden reportar fallas ("corrige ..."),
+ * no enseñar reglas. Es una lista aparte de OWNER_WHATSAPP_NUMBERS (ver .env.example).
+ */
+export function numerosDeReporte(): string[] {
+  return (process.env.REPORTE_FALLAS_NUMBERS ?? "")
+    .split(",")
+    .map((n) => n.trim())
+    .filter((n) => n.length > 0);
+}
+
+function esNumeroDeReporte(externalId: string): boolean {
+  const k = clave(externalId);
+  return k.length > 0 && numerosDeReporte().some((n) => clave(n) === k);
+}
+
+/**
+ * ¿Este número puede darle órdenes al bot ahora mismo? Devuelve cómo se lo reconoció (para los
+ * logs y para firmar los tickets), o null.
+ *
+ * [2026-09-17] Orden: primero el .env (no cuesta nada), después la tabla `users` del panel —
+ * usuarios activos con "puede corregir el bot" y su celular (sql/users-bot-corrige.sql), con
+ * caché de un minuto — y por último la sesión abierta con el código secreto.
+ */
 export async function puedeCorregir(canal: string, externalId: string): Promise<string | null> {
   if (esNumeroAutorizado(externalId)) return "número autorizado";
+  const panel = await permisosDeNumero(externalId);
+  if (panel?.puedeEnsenar) return panel.nombre;
   return await usuarioDeSesion(canal, externalId);
+}
+
+/** ¿Este número puede REPORTAR fallas? Todo el que puede corregir, más REPORTE_FALLAS_NUMBERS. */
+async function puedeReportar(canal: string, externalId: string): Promise<string | null> {
+  const quien = await puedeCorregir(canal, externalId);
+  if (quien) return quien;
+  return esNumeroDeReporte(externalId) ? "número de reportes" : null;
+}
+
+export type MedioDeMensaje = "texto" | "audio";
+
+/**
+ * [2026-09-17] REPORTES DE FALLAS: un texto o un audio (ya transcrito en runTurn.ts) que empiece
+ * con la palabra "corrige" — SIN barra: "/corrige" es enseñar una regla, "corrige ..." es contar
+ * algo que salió mal — se guarda tal cual como un ticket abierto en la tabla `tickets` del
+ * panel, con quién lo reportó y por qué medio llegó. No se deduplica (ver abrirTicketReportado).
+ *
+ * Si el número no está autorizado, NO se contesta nada especial: se devuelve `manejado: false`
+ * y el mensaje sigue como consulta normal de cliente (un cliente bien puede escribir "corrige
+ * la fecha de mi reserva").
+ */
+export async function intentarReporteDeFalla(
+  canal: string,
+  externalId: string,
+  texto: string,
+  medio: MedioDeMensaje = "texto"
+): Promise<ResultadoComando> {
+  const limpio = (texto ?? "").trim();
+  // "Corrige", "corrige:", "Corrige, ..." — la transcripción del audio suele meter puntuación.
+  const m = /^corrige\b[\s:,.\-–—]*/i.exec(limpio);
+  if (!m) return { manejado: false };
+
+  const quien = await puedeReportar(canal, externalId);
+  if (!quien) return { manejado: false };
+
+  const detalle = limpio.slice(m[0].length).trim();
+  if (detalle.length < 5) {
+    return {
+      manejado: true,
+      etiquetaParaLog: `reporte de falla vacío (${quien}, ${medio})`,
+      respuesta:
+        "Contame qué salió mal después de la palabra corrige, así lo dejo anotado para el equipo. " +
+        "Ejemplo: corrige el bot le dijo al cliente que había cupo el sábado y no había.",
+    };
+  }
+
+  const ticketId = await abrirTicketReportado({ texto: detalle, reportadoPor: quien, canal, externalId, medio });
+  if (ticketId == null) {
+    return {
+      manejado: true,
+      etiquetaParaLog: `reporte de falla NO guardado (${quien}, ${medio})`,
+      respuesta:
+        "Te leí, pero no pude guardar el reporte en el panel — el detalle quedó en los logs del worker. " +
+        "Por favor pasáselo directo al equipo técnico.",
+    };
+  }
+  return {
+    manejado: true,
+    etiquetaParaLog: `reporte de falla #${ticketId} por ${quien} (${medio})`,
+    respuesta:
+      `Anotado ✅ Quedó como ticket #${ticketId} en el panel` +
+      (medio === "audio" ? " (lo transcribí de tu audio)" : "") +
+      `:\n\n"${detalle}"\n\nEl equipo técnico lo ve desde ya.`,
+  };
 }
 
 async function intentarIdentificar(
@@ -182,7 +276,9 @@ async function intentarIdentificar(
 export async function intentarComando(
   canal: string,
   externalId: string,
-  texto: string
+  texto: string,
+  /** [2026-09-17] Cómo llegó el mensaje — queda en el ticket cuando es un reporte de falla. */
+  medio: MedioDeMensaje = "texto"
 ): Promise<ResultadoComando> {
   const limpio = (texto ?? "").trim();
   if (!limpio) return { manejado: false };
@@ -233,8 +329,12 @@ export async function intentarComando(
     };
   }
 
-  // --- 3. Comandos con barra ---
-  if (!limpio.startsWith("/")) return { manejado: false };
+  // --- 3. Reporte de falla: "corrige ..." sin barra (ver intentarReporteDeFalla) ---
+  if (!limpio.startsWith("/")) {
+    return await intentarReporteDeFalla(canal, externalId, limpio, medio);
+  }
+
+  // --- 4. Comandos con barra ---
 
   const espacio = limpio.indexOf(" ");
   const comando = (espacio === -1 ? limpio : limpio.slice(0, espacio)).toLowerCase();
@@ -300,6 +400,7 @@ export async function intentarComando(
       respuesta:
         "Comandos del equipo 🛠️\n\n" +
         "/corrige <lo que querés que cambie> — se lo enseño y aplica con todos los clientes.\n" +
+        "corrige <qué salió mal> (sin barra, texto o audio) — lo anoto como ticket para el equipo técnico.\n" +
         "/correcciones — te muestro todo lo aprendido, con su número.\n" +
         "/borra <número> — desactivo esa corrección.\n" +
         "/confirmar <número del cliente> — verificaste el pago: cancelo el bloqueo de 10 min, no le mando el aviso de liberación y creo la reserva real en LobbyPMS.\n" +
@@ -409,10 +510,22 @@ export async function intentarComando(
           "(sql/correcciones.sql). El detalle quedó en los logs del worker.",
       };
     }
+    // [2026-09-17] Historial en el panel: la enseñanza nace como ticket ya RESUELTO (ver
+    // abrirTicketEnsenanza). Mejor esfuerzo: la corrección YA quedó guardada pase lo que pase.
+    const ticketId =
+      guardada.id != null
+        ? await abrirTicketEnsenanza({
+            texto: resto,
+            correccionId: guardada.id,
+            ensenadoPor: quien,
+            canal,
+            externalId,
+          })
+        : null;
     const activas = await listCorrecciones(true);
     return {
       manejado: true,
-      etiquetaParaLog: `/corrige #${guardada.id} por ${quien}`,
+      etiquetaParaLog: `/corrige #${guardada.id} por ${quien}` + (ticketId ? ` (ticket #${ticketId})` : " (sin ticket)"),
       respuesta:
         `Listo, aprendido ✅ (#${guardada.id})\n\n"${resto}"\n\n` +
         `Lo aplico desde el próximo mensaje, con todos los clientes. Van ${activas.length} correcciones activas.`,

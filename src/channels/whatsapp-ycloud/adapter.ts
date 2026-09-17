@@ -1,5 +1,5 @@
 import type { ChannelAdapter, InboundEvent, OutboundMessage } from "../types.js";
-import { sendTextMessage, sendImageMessage, descargarMedia } from "./client.js";
+import { sendTextMessage, sendImageMessage, sendVideoMessage, sendMultiProductMessage, descargarMedia } from "./client.js";
 import { verifyYCloudSignature } from "./signature.js";
 import { transcribirAudio } from "../../core/llm/whisper.js";
 
@@ -29,7 +29,14 @@ function extraerMediaLink(media: Record<string, unknown> | undefined): string | 
 export const whatsappYcloudAdapter: ChannelAdapter = {
   name: "whatsapp",
   async send(msg: OutboundMessage) {
-    if (msg.imageUrl) {
+    if (msg.catalogo) {
+      await sendMultiProductMessage(msg.to, msg.catalogo.body, msg.catalogo.secciones, {
+        header: msg.catalogo.header,
+        footer: msg.catalogo.footer,
+      });
+    } else if (msg.videoUrl) {
+      await sendVideoMessage(msg.to, msg.videoUrl, msg.text);
+    } else if (msg.imageUrl) {
       await sendImageMessage(msg.to, msg.imageUrl, msg.text);
     } else {
       await sendTextMessage(msg.to, msg.text ?? "");

@@ -49,7 +49,7 @@ interface InboundJobData {
 
 let queue: Queue<InboundJobData> | null = null;
 
-function getInboundQueue(): Queue<InboundJobData> {
+export function getInboundQueue(): Queue<InboundJobData> {
   if (!queue) {
     queue = new Queue<InboundJobData>(QUEUE_INBOUND, {
       connection: getRedisConnection(),

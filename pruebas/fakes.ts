@@ -380,6 +380,17 @@ export function lobbyResponderaDisponibilidad(secuencia: (number | null)[]): voi
   lobbyDisponibilidadEnCola = [...secuencia];
 }
 
+/**
+ * [2026-09-17] Inventario completo por categoría, para las pruebas de GRUPOS (varios domos).
+ * Por defecto (null) el falso solo devuelve "DOMO FAMILIAR" con la cantidad de la secuencia de
+ * arriba. Con esto se simula el hotel entero: familiares, romantic, chalet y deluxe.
+ * Ej.: [{ name: "DOMO FAMILIAR", available: 2 }, { name: "DOMO ROMANTIC", available: 2 }, ...]
+ */
+let lobbyCategoriasFijas: { name: string; available: number }[] | null = null;
+export function lobbyResponderaCategorias(categorias: { name: string; available: number }[] | null): void {
+  lobbyCategoriasFijas = categorias;
+}
+
 /** Si `POST /block` (volver a tomar el cupo) debe funcionar o fallar. */
 export function lobbyResponderaBlock(ok: boolean): void {
   lobbyBlockOk = ok;
@@ -387,6 +398,7 @@ export function lobbyResponderaBlock(ok: boolean): void {
 
 export function instalarLobbyFalso(): void {
   lobbyDisponibilidadEnCola = [5];
+  lobbyCategoriasFijas = null;
   lobbyBlockOk = true;
   lobbyBookingOk = true;
   consultasDisponibilidadLobby.length = 0;
@@ -406,6 +418,14 @@ export function instalarLobbyFalso(): void {
         throw err;
       }
       const fecha = config?.params?.start_date ?? "2026-09-15";
+      if (lobbyCategoriasFijas) {
+        return {
+          data: [{
+            date: fecha,
+            categories: lobbyCategoriasFijas.map((c, i) => ({ category_id: 30 + i, name: c.name, available_rooms: c.available })),
+          }],
+        };
+      }
       return {
         data: [{ date: fecha, categories: [{ category_id: 33, name: "DOMO FAMILIAR", available_rooms: siguiente }] }],
       };

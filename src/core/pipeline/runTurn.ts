@@ -1,4 +1,5 @@
 import type { ChannelAdapter, InboundEvent } from "../../channels/types.js";
+import { LIMITE_CAPTION_WHATSAPP } from "../../channels/types.js";
 import {
   agenteQueAtiende,
   esquemasDeHerramientas,
@@ -10,7 +11,7 @@ import { openrouter, LLM_MODEL } from "../llm/openrouter.js";
 import { insertMensaje, listMensajes } from "../db/mensajesRepo.js";
 import { getEstado, setLastAgent, marcarEscalado, marcarAvisoHumano } from "../db/estadoRepo.js";
 import { enrutarMensaje } from "../../agentes/orquestador/route.js";
-import { enviarSeguro } from "./enviar.js";
+import { enviarSeguro, enviarVideoSeguro, enviarImageSeguro, enviarCatalogoSeguro, partirParaCaption } from "./enviar.js";
 import { programarRecontacto, cancelarRecontacto } from "../queue/recontactoQueue.js";
 import { intentarComando } from "./comandos.js";
 import { bloqueDeCorrecciones } from "../db/correccionesRepo.js";
@@ -204,6 +205,12 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
   // para no mezclar código propio de YCloud en el core — mismo resultado que el reconocimiento
   // de audio de agente-ycloud-main ("Sebas Raider"), portado con la arquitectura de canales de
   // este bot.
+  //
+  // [2026-09-18] Restaurado — este bloque (y su contraparte en adapter.ts/client.ts/types.ts)
+  // se había borrado por accidente el 2026-09-17 al integrar las funciones de video/catálogo,
+  // dejando que un audio o imagen entrante avanzara por todo el pipeline como un mensaje de
+  // texto VACÍO (event.text ?? ""), sin avisarle nada al cliente. Se detectó en la validación
+  // de los fixes de la simulación del 2026-09-15.
   if (event.mediaType && !event.text) {
     try {
       const texto = await adapter.resolveMediaText?.(event);
@@ -232,10 +239,21 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
     }
   }
 
-  // Comandos del equipo (/corrige, /correcciones, /borra) — solo desde los números de
-  // OWNER_WHATSAPP_NUMBERS. Se atienden ANTES de tratar el mensaje como una consulta de
-  // cliente, así no ensucian el historial de ninguna conversación ni gastan una llamada al LLM.
-  const comando = await intentarComando(event.channel, event.externalId, event.text ?? "");
+  // Comandos del equipo (/aprende, /correcciones, /borra, /confirmar, /resuelto) — solo desde
+  // los números de OWNER_WHATSAPP_NUMBERS o con sesión. Se atienden ANTES de tratar el mensaje
+  // como una consulta de cliente, así no ensucian el historial de ninguna conversación ni gastan
+  // una llamada al LLM.
+  //
+  // [2026-09-16] Acá también entran los REPORTES DE FALLAS: un texto o un audio (ya transcrito
+  // arriba) que empiece con "corrige", desde un número de REPORTE_FALLAS_NUMBERS, se guarda como
+  // ticket en la tabla `tickets` del panel (ver comandos.ts, "REPORTES DE FALLAS"). Se le pasa
+  // el medio para que el ticket diga si llegó por audio o por texto.
+  const comando = await intentarComando(
+    event.channel,
+    event.externalId,
+    event.text ?? "",
+    event.mediaType === "audio" ? "audio" : "texto"
+  );
   if (comando.manejado && comando.respuesta) {
     // OJO: se loguea la etiqueta que devuelve el comando, NUNCA el texto del mensaje — puede
     // traer la clave del equipo, y los logs se leen y se comparten.
@@ -391,6 +409,25 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
   // "contestar con texto" en vez de llamarla. Se consume una sola vez (null después de leerlo).
   let forzarProximaHerramienta: string | null = null;
 
+  // [2026-09-16] Si alguna herramienta de este turno devolvió `videoUrl` (ver ToolResult), se
+  // guarda acá para mandarlo como VIDEO NATIVO de WhatsApp (miniatura + reproducción sin salir
+  // de la app) aparte del mensaje de texto normal, al final del turno. No pasa por la
+  // verificación de cifras ni por la redacción libre del modelo — es un archivo, no texto.
+  let videoUrlPendiente: string | null = null;
+
+  // [2026-09-16] Similar a videoUrlPendiente, pero para imágenes (jpg, png, etc.) devueltas
+  // por una herramienta. Se manda como IMAGEN NATIVA de WhatsApp.
+  let imageUrlPendiente: string | null = null;
+
+  // [2026-09-15] Mismo mecanismo que videoUrlPendiente, para el mensaje de catálogo de
+  // WhatsApp (gratis — ver ToolResult.catalogoWhatsApp y REFERENCIA-CATALOGO-WHATSAPP.md).
+  let catalogoWhatsAppPendiente: import("../tools/types.js").ToolResult["catalogoWhatsApp"] | null = null;
+
+  // [2026-09-18] Mismo mecanismo, para el SEGUNDO mensaje de un texto literal largo (ver
+  // ToolResult.textoAdicional — hoy solo lo usa consultar_politicas). Se guarda el de la
+  // ÚLTIMA herramienta con texto literal del turno, igual que finalText/textoDeRespaldo.
+  let textoAdicionalPendiente: string | null = null;
+
   // [2026-09-11] Red de seguridad contra un precio "de memoria": si el modelo contesta con
   // texto libre (sin llamar NINGUNA herramienta en ese hop) y ese texto menciona una cifra de
   // dinero, no hay cómo confirmar que sigue siendo la de la base — pudo haberla recordado de un
@@ -472,7 +509,13 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
           const toolResult = await handler(args, { channel: event.channel, externalId: event.externalId });
 
           const definicion = buscarHerramienta(call.function.name, agente.herramientas);
-          const redaccionLibre = Boolean(definicion?.permitirRedaccion) && Boolean(toolResult.reply_to_user);
+          // [2026-09-17] `forzarTextoLiteral` (ver ToolResult) deja que UNA llamada puntual de
+          // una herramienta con `permitirRedaccion: true` se mande literal igual — ver el
+          // comentario del campo para el porqué (consultar_planes, detalle de un plan puntual).
+          const redaccionLibre =
+            Boolean(definicion?.permitirRedaccion) &&
+            Boolean(toolResult.reply_to_user) &&
+            !toolResult.forzarTextoLiteral;
 
           // Se guarda el dueño real de ESTA herramienta si lo declara (ver comentario arriba,
           // antes del while) — se queda con el último, que es el que refleja el estado de la
@@ -517,6 +560,11 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
               finalText = toolResult.reply_to_user;
               finalTextEsLiteralDeHerramienta = true;
               for (const monto of montosEn(toolResult.reply_to_user)) valoresPermitidos.add(monto);
+              // El segundo mensaje (si lo hay) viaja pegado a ESTE resultado literal — si un hop
+              // posterior de este mismo turno vuelve a contestar con texto literal, se descarta
+              // el textoAdicional del hop anterior (mismo criterio que finalText, que también se
+              // pisa hop tras hop).
+              textoAdicionalPendiente = toolResult.textoAdicional ?? null;
             }
           }
 
@@ -526,6 +574,21 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
                 `en el próximo hop — ${key}`
             );
             forzarProximaHerramienta = toolResult.forzarSiguienteHerramienta;
+          }
+
+          if (toolResult.videoUrl) {
+            console.log(`[runTurn] "${call.function.name}" pide mandar un video nativo — ${key}: ${toolResult.videoUrl}`);
+            videoUrlPendiente = toolResult.videoUrl;
+          }
+
+          if (toolResult.imageUrl) {
+            console.log(`[runTurn] "${call.function.name}" pide mandar una imagen nativa — ${key}: ${toolResult.imageUrl}`);
+            imageUrlPendiente = toolResult.imageUrl;
+          }
+
+          if (toolResult.catalogoWhatsApp) {
+            console.log(`[runTurn] "${call.function.name}" pide mandar el catálogo de WhatsApp — ${key}`);
+            catalogoWhatsAppPendiente = toolResult.catalogoWhatsApp;
           }
         } catch (err) {
           // No dejamos que un error de la herramienta (ej. Supabase caído, un handler que
@@ -687,7 +750,65 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
     agent_name: decision.agente,
   });
 
-  const entregado = await enviarSeguro(adapter, event.externalId, reply, key);
+  // [2026-09-16 → 2026-09-17] El video (si alguna herramienta lo pidió, ver videoUrlPendiente
+  // arriba) va antes que el texto — pedido de Daniel: que el cliente vea primero el video del
+  // plan y enseguida el precio y los ganchos.
+  //
+  // Probado en real: mandarlos como DOS mensajes (aunque el video se pida primero en el código)
+  // no garantiza el orden en que el cliente los VE — WhatsApp tarda más en procesar y entregar
+  // un video (lo descarga, le saca miniatura) que un texto plano, que llega casi al instante, así
+  // que a veces el texto se veía primero igual. La única forma de garantizar el orden de verdad
+  // es que no sean dos mensajes: el texto va como CAPTION del mismo mensaje del video, si cabe
+  // en el límite de WhatsApp para pie de foto (1024 caracteres — se deja margen en 1000).
+  //
+  // [2026-09-17] Cuando el texto NO cabe como pie de foto, el video ya no se manda solo: se
+  // parte el texto (ver `partirParaCaption`) y el video viaja igual con la primera parte de
+  // caption, mientras el resto sigue en un segundo mensaje. Antes, en ese caso, llegaba el
+  // video por un lado y todo el texto por otro — "separaste el mensaje del video", lo reportó
+  // Daniel probando el PLAN CLASICO VIP. Con los datos de hoy solo se parten 2 de los 20 planes
+  // (CLASICO VIP y PARAISO, de más de 20 ítems cada uno): el límite de WhatsApp para un pie de
+  // foto son 1024 caracteres y contra eso no hay nada que hacer del lado del bot.
+  let entregado: boolean;
+  if (videoUrlPendiente) {
+    const [caption, resto] = partirParaCaption(reply, LIMITE_CAPTION_WHATSAPP);
+    const okConCaption = await enviarVideoSeguro(adapter, event.externalId, videoUrlPendiente, key, caption);
+    if (okConCaption) {
+      entregado = true;
+      // La continuación va aparte sí o sí: no cabía en el mismo mensaje.
+      if (resto) await enviarSeguro(adapter, event.externalId, resto, key);
+    } else {
+      // Si el video con caption falló (ej. el archivo no cargó), no dejamos al cliente sin
+      // nada: se manda el texto COMPLETO —no la parte cortada— en un mensaje normal.
+      entregado = await enviarSeguro(adapter, event.externalId, reply, key);
+    }
+  } else if (imageUrlPendiente) {
+    // [2026-09-16] Las imágenes funcionan igual que los videos: se parten si el texto no cabe
+    // como pie de foto (caption), y si falla el envío de la imagen se manda el texto completo.
+    const [caption, resto] = partirParaCaption(reply, LIMITE_CAPTION_WHATSAPP);
+    const okConCaption = await enviarImageSeguro(adapter, event.externalId, imageUrlPendiente, key, caption);
+    if (okConCaption) {
+      entregado = true;
+      // La continuación va aparte sí o sí: no cabía en el mismo mensaje.
+      if (resto) await enviarSeguro(adapter, event.externalId, resto, key);
+    } else {
+      // Si la imagen con caption falló, no dejamos al cliente sin nada.
+      entregado = await enviarSeguro(adapter, event.externalId, reply, key);
+    }
+  } else {
+    entregado = await enviarSeguro(adapter, event.externalId, reply, key);
+  }
+  // [2026-09-18] El resto de un texto literal largo (ver textoAdicionalPendiente) va justo
+  // después del mensaje principal — se manda solo si el mensaje principal SÍ se entregó (si
+  // falló, reintentar la primera parte importa más que mandar la segunda suelta).
+  if (entregado && textoAdicionalPendiente) {
+    await enviarSeguro(adapter, event.externalId, textoAdicionalPendiente, key);
+  }
+
+  // [2026-09-15] El catálogo (si alguna herramienta lo pidió) va DESPUÉS del texto (y del
+  // video, si también hubo) — es un mensaje aparte, no reemplaza nada de lo anterior.
+  if (catalogoWhatsAppPendiente) {
+    await enviarCatalogoSeguro(adapter, event.externalId, catalogoWhatsAppPendiente, key);
+  }
 
   // Recontacto automático: si el cliente no vuelve a escribir, el bot retoma la conversación
   // a los 20 minutos, y después a las 3 y a las 6 horas (ver src/core/queue/recontactoQueue.ts).

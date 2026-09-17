@@ -15,6 +15,7 @@
   <nav class="tabs">
     <button data-panel="planes" class="active">Planes</button>
     <button data-panel="adicionales">Adicionales</button>
+    <button data-panel="promociones">Promociones</button>
     <button data-panel="horarios">Horarios y fechas</button>
     <button data-panel="faq">Preguntas frecuentes</button>
     <button data-panel="conversaciones">Conversaciones</button>
@@ -32,7 +33,7 @@
       <p class="hint">Estos son los domos o paquetes que el bot ofrece cuando un cliente pregunta por precios. Solo los que estén "Activo" se le muestran al bot. <strong>El bot cotiza SIEMPRE con estos valores</strong>, así que lo que se cambie acá es lo que el cliente va a recibir por WhatsApp. Un precio vacío significa "ese plan no se vende ese día" (por ejemplo un pasadía de domingo no tiene tarifa de entre semana).</p>
       <table class="editable">
         <thead>
-          <tr><th style="width:20%">Nombre</th><th>Descripción</th><th style="width:11%">Entre semana</th><th style="width:11%">Fin de semana</th><th style="width:11%">Puente festivo</th><th style="width:7%">Activo</th><th style="width:13%"></th></tr>
+          <tr><th style="width:16%">Nombre</th><th>Descripción</th><th style="width:9%">Entre semana</th><th style="width:9%">Fin de semana</th><th style="width:9%">Puente festivo</th><th style="width:13%">SKU catálogo</th><th style="width:6%">Activo</th><th style="width:13%"></th></tr>
         </thead>
         <tbody id="planes-body"></tbody>
       </table>
@@ -43,6 +44,7 @@
           <div><label>Entre semana (COP)</label><input type="number" name="precio_entre_semana" min="0" step="1000" /></div>
           <div><label>Fin de semana (COP)</label><input type="number" name="precio_fin_de_semana" min="0" step="1000" /></div>
           <div><label>Fin de semana con puente (COP)</label><input type="number" name="precio_fin_de_semana_puente" min="0" step="1000" /></div>
+          <div><label>SKU en el catálogo de WhatsApp (opcional)</label><input type="text" name="retailer_id" placeholder="ej: plan-confort" /></div>
         </div>
         <div><label>Descripción</label><textarea name="descripcion"></textarea></div>
         <button type="submit" class="btn primary" style="margin-top:8px">+ Agregar plan</button>
@@ -69,6 +71,65 @@
         <div><label>Descripción</label><textarea name="descripcion"></textarea></div>
         <button type="submit" class="btn primary" style="margin-top:8px">+ Agregar adicional</button>
       </form>
+    </section>
+
+    <!-- PROMOCIONES -->
+    <section class="panel" id="panel-promociones">
+      <h2>Promociones (carrusel de WhatsApp)</h2>
+      <p class="hint">Esto NO se manda solo durante una conversación normal del bot: solo sale cuando el equipo dispara una campaña acá, a un carrusel de tarjetas (como los anuncios de Movistar). Cada tarjeta necesita una foto pública, un texto corto (máx. 160 caracteres) y opcionalmente un link. Ver <code>REFERENCIA-MODULO-PROMOCIONES.md</code> para el detalle completo.</p>
+
+      <table class="editable">
+        <thead>
+          <tr><th style="width:14%">Nombre</th><th>Texto de la tarjeta</th><th style="width:18%">Foto (URL)</th><th style="width:16%">Link del botón</th><th style="width:8%">Orden</th><th style="width:7%">Activa</th><th style="width:13%"></th></tr>
+        </thead>
+        <tbody id="promociones-body"></tbody>
+      </table>
+      <form class="add-row-form" id="promociones-add-form">
+        <h3>Agregar promoción nueva</h3>
+        <div class="field-grid">
+          <div><label>Nombre (interno)</label><input type="text" name="nombre" required /></div>
+          <div><label>Foto (URL pública)</label><input type="text" name="imagen_url" placeholder="https://...supabase.co/storage/.../promociones-imagenes/..." required /></div>
+          <div><label>Link del botón (opcional)</label><input type="text" name="boton_url" placeholder="https://..." /></div>
+          <div><label>Orden</label><input type="number" name="orden" value="0" /></div>
+        </div>
+        <div><label>Texto de la tarjeta (máx. 160 caracteres)</label><textarea name="texto_tarjeta" maxlength="160" required></textarea></div>
+        <button type="submit" class="btn primary" style="margin-top:8px">+ Agregar promoción</button>
+      </form>
+
+      <h2 style="margin-top:32px">Plantillas de carousel aprobadas</h2>
+      <p class="hint">Regístralas acá DESPUÉS de crearlas y que Meta las apruebe en YCloud (sección 4 de <code>REFERENCIA-CAROUSEL-WHATSAPP.md</code>). El número de tarjetas activas de arriba tiene que calzar exacto con la plantilla que uses para enviar.</p>
+      <table class="editable">
+        <thead>
+          <tr><th style="width:24%">Nombre de la plantilla</th><th style="width:14%">Tarjetas</th><th style="width:12%">Idioma</th><th style="width:16%">Botón de link</th><th style="width:9%">Activa</th><th style="width:13%"></th></tr>
+        </thead>
+        <tbody id="plantillas-carousel-body"></tbody>
+      </table>
+      <form class="add-row-form" id="plantillas-carousel-add-form">
+        <h3>Registrar plantilla aprobada</h3>
+        <div class="field-grid">
+          <div><label>Nombre exacto en YCloud</label><input type="text" name="nombre_plantilla" required /></div>
+          <div><label>Cantidad de tarjetas (2-10)</label><input type="number" name="cantidad_tarjetas" min="2" max="10" required /></div>
+          <div><label>Idioma</label><input type="text" name="idioma" value="es" /></div>
+          <div><label>¿Tiene botón de link?</label><select name="incluye_boton_url"><option value="true">Sí</option><option value="false">No</option></select></div>
+        </div>
+        <button type="submit" class="btn primary" style="margin-top:8px">+ Registrar plantilla</button>
+      </form>
+
+      <h2 style="margin-top:32px">Enviar campaña</h2>
+      <p class="hint">Pega un número por línea, en formato internacional (ej: <code>+573001234567</code>). Antes de mandar nada, "Revisar" te dice si las promociones activas de hoy calzan con la plantilla elegida.</p>
+      <div class="field-grid" style="max-width:500px">
+        <div><label>Plantilla a usar</label><select id="promo-broadcast-plantilla"></select></div>
+      </div>
+      <div><label>Destinatarios (uno por línea)</label><textarea id="promo-broadcast-destinatarios" rows="6" placeholder="+573001234567&#10;+573009876543"></textarea></div>
+      <button class="btn" id="promo-broadcast-revisar" style="margin-top:8px">Revisar</button>
+      <button class="btn primary" id="promo-broadcast-enviar" style="margin-top:8px">Enviar campaña</button>
+      <div id="promo-broadcast-resultado" class="hint" style="margin-top:12px; white-space:pre-wrap;"></div>
+
+      <h2 style="margin-top:32px">Campañas enviadas</h2>
+      <table class="editable">
+        <thead><tr><th style="width:20%">Fecha</th><th style="width:20%">Plantilla</th><th style="width:15%">Destinatarios</th><th style="width:15%">Exitosos</th><th style="width:15%">Fallidos</th></tr></thead>
+        <tbody id="promociones-envios-body"></tbody>
+      </table>
     </section>
 
     <!-- HORARIOS Y FECHAS -->

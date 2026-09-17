@@ -29,7 +29,11 @@
     "prueba:recargos": "tsx pruebas/e2e-recargos.ts",
     "prueba:orquestador": "tsx pruebas/e2e-orquestador.ts",
     "prueba:cupo-plan-familiar": "tsx pruebas/e2e-cupo-plan-familiar.ts",
-    "prueba:debounce": "tsx pruebas/e2e-debounce-mensajes.ts"
+    "prueba:debounce": "tsx pruebas/e2e-debounce-mensajes.ts",
+    "prueba:link-video-plan": "tsx pruebas/e2e-link-video-plan.ts",
+    "prueba:simulacion-kommo": "tsx pruebas/simulacion-kommo.ts",
+    "prueba:promociones": "tsx pruebas/e2e-promociones.ts",
+    "prueba:catalogo-whatsapp": "tsx pruebas/e2e-catalogo-whatsapp.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",

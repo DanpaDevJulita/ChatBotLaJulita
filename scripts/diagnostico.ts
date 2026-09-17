@@ -688,7 +688,7 @@ async function s9Cola(): Promise<void> {
     }
     const completos = await q.getCompleted(0, 4);
     log("");
-    log(`  últimos ${completos.length} trabajo(s) completado(s): ${JSON.stringify(completos.map((j) => ({ id: j.id, texto: (j.data as any)?.text })))}`);
+    log(`  últimos ${completos.length} trabajo(s) completado(s): ${JSON.stringify(completos.map((j: { id?: string; data?: unknown }) => ({ id: j.id, texto: (j.data as any)?.text })))}`);
   } catch (e) {
     problema(`no se pudo inspeccionar la cola: ${errTxt(e)}`);
   }

@@ -3,18 +3,26 @@ import { planesRepo, adicionalesRepo, getConfiguracion, getDomosYClases } from "
 import { consultarDisponibilidad, type DisponibilidadCategoria } from "../../../core/integrations/lobbypms.js";
 import { contarBloqueosActivos } from "../../../core/db/bloqueosRepo.js";
 import type { Plan } from "../../../core/db/catalogoRepo.js";
+import { armarPropuestaGrupo, esGrupo, repartoDeclarado } from "./grupos.js";
 
-function formatMoney(n: number): string {
+export function formatMoney(n: number): string {
   return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n);
 }
 
 /** "1 persona" / "4 personas" — el plural mal puesto se nota y queda descuidado. */
-function textoPersonas(cantidad: number): string {
+export function textoPersonas(cantidad: number): string {
   return `${cantidad} ${cantidad === 1 ? "persona" : "personas"}`;
 }
 
 /** Los textos vienen del panel con saltos de línea de Windows; WhatsApp se lleva mejor con \n. */
-function limpiar(texto: string | null | undefined): string {
+/** Deja el link de YouTube en su forma canónica (watch?v=...) para que WhatsApp lo reconozca. */
+function linkVideoLimpio(link: string): string {
+  const m = link.match(/(?:youtube\.com\/(?:shorts\/|watch\?v=|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/);
+  if (!m) return link;
+  return `https://www.youtube.com/watch?v=${m[1]}`;
+}
+
+export function limpiar(texto: string | null | undefined): string {
   return (texto ?? "").replace(/\r\n/g, "\n").trim();
 }
 
@@ -44,9 +52,16 @@ function limpiar(texto: string | null | undefined): string {
  * tokens, uno por línea, cada uno resuelto con su propio precio. El emoji y el resto del texto de
  * la línea quedan intactos.
  *
- * Sigue existiendo, como red de seguridad, el borrado de líneas con un precio escrito A MANO
- * (planes que el equipo todavía no migró a `$$$$`) — para que nunca se cuele un precio viejo
- * mientras se termina de editar el resto de las plantillas.
+ * [2026-09-17] La migración terminó: los 4 planes que faltaban (ids 28, 30, 31, 32) ya usan
+ * `$$$$`, y de paso salieron de sus descripciones dos bloques de cifras que estaban duplicando
+ * datos de otras tablas — los precios del Domo Deluxe metidos en el plan de una persona (el
+ * deluxe es su propio plan, id 29) y los recargos de niños de los planes familiares (viven en la
+ * tabla `recargos`). Ver scripts/migrar-precios-a-token.ts, que deja respaldo y se puede volver
+ * a correr.
+ *
+ * Con eso, la vieja red de seguridad que borraba toda línea con un `$` escrito a mano DEJÓ DE
+ * EXISTIR (ver el comentario al final de esta función): ya no protege de nada y sí borraba
+ * montos legítimos que no son precio de plan.
  */
 function precioPorPalabrasDeLaLinea(linea: string, p: Plan): number | null {
   const s = linea.toLowerCase();
@@ -82,8 +97,23 @@ function resolverPreciosEnDescripcion(texto: string, p: Plan): string {
         }
         return linea.replace(/\$\$\$\$/g, formatMoney(precio));
       }
-      // Red de seguridad: precio viejo escrito a mano, todavía sin migrar a $$$$.
-      if (/\$\s?\d/.test(linea)) return null;
+      // [2026-09-17] Cualquier otra línea va TAL CUAL, incluso si trae una cifra de dinero.
+      // Hasta hoy acá se borraba toda línea con un `$` seguido de números, como red de seguridad
+      // contra los precios viejos que quedaban escritos a mano. Esa red ya no aplica y encima
+      // hacía daño: los 4 planes que faltaban están migrados a `$$$$` (ver
+      // scripts/migrar-precios-a-token.ts), así que lo único que seguía cazando eran montos que
+      // NO son el precio de un plan y que el equipo escribió a propósito — el caso concreto es
+      // "Cena: dos platos fuertes y dos bebidas (bebidas de hasta $10.000)" del PLAN DESCANSO
+      // PREMIUM (id 3): la línea entera desaparecía del mensaje y el cliente nunca se enteraba
+      // de que la cena venía incluida.
+      //
+      // La regla la fijó Daniel el 2026-09-17: "el bot no tiene por qué estar opinando de los
+      // precios que pongo en mis tablas, él solo hace caso; lo verdadero es lo que está en la
+      // base de datos". Las descripciones se administran desde el panel, así que lo que haya ahí
+      // es intencional por definición y el bot lo muestra. La protección contra cifras
+      // inventadas sigue intacta donde corresponde: en runTurn.ts, que verifica que toda cifra
+      // del mensaje final haya salido de una herramienta (y una cifra de la descripción SÍ sale
+      // de acá, así que pasa).
       return linea;
     })
     .filter((linea): linea is string => linea != null)
@@ -117,7 +147,7 @@ const NUMEROS_ESCRITOS: Record<string, number> = {
   una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8,
 };
 
-function sinTildes(texto: string): string {
+export function sinTildes(texto: string): string {
   return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
@@ -190,9 +220,9 @@ export function capacidadDePlan(p: Plan, cat: CatalogoDomos): number | null {
   return mayor > 0 ? mayor : null;
 }
 
-type TipoPlan = "una_noche" | "dos_noches" | "pasadia";
+export type TipoPlan = "una_noche" | "dos_noches" | "pasadia";
 
-function tipoDePlan(p: Plan): TipoPlan {
+export function tipoDePlan(p: Plan): TipoPlan {
   const t = sinTildes(p.nombre ?? "");
   if (t.includes("pasadia")) return "pasadia";
   if (t.includes("dos noches")) return "dos_noches";
@@ -260,7 +290,7 @@ export function precioPara(p: Plan, t: Tarifa): number | null {
 }
 
 /** El más barato de los precios que sí aplican — sirve para ordenar cuando no sabemos la fecha. */
-function precioReferencia(p: Plan): number | null {
+export function precioReferencia(p: Plan): number | null {
   const todos = [p.precio_entre_semana, p.precio_fin_de_semana, p.precio_fin_de_semana_puente].filter(
     (v): v is number => Boolean(v)
   );
@@ -274,14 +304,25 @@ function precioReferencia(p: Plan): number | null {
  * modelo pasa `festivo: true`.
  */
 export function tarifaDeFecha(fechaISO: string, festivo?: boolean): Tarifa | null {
-  const m = limpiar(fechaISO).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const d = fechaComoDate(fechaISO);
+  if (!d) return null;
+  if (!esFinDeSemana(fechaISO)) return "entre_semana";
+  return festivo ? "fin_de_semana_puente" : "fin_de_semana";
+}
+
+function fechaComoDate(fechaISO: string): Date | null {
+  const m = limpiar(fechaISO ?? "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  if (Number.isNaN(d.getTime())) return null;
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Viernes, sábado o domingo. La usa también disponibilidad.ts para no ofrecerle fin de semana a una persona sola. */
+export function esFinDeSemana(fechaISO: string): boolean {
+  const d = fechaComoDate(fechaISO);
+  if (!d) return false;
   const dia = d.getUTCDay(); // 0 domingo ... 6 sábado
-  const esFinDeSemana = dia === 0 || dia === 5 || dia === 6;
-  if (!esFinDeSemana) return "entre_semana";
-  return festivo ? "fin_de_semana_puente" : "fin_de_semana";
+  return dia === 0 || dia === 5 || dia === 6;
 }
 
 // ---- Ganchos de venta y ocasión ------------------------------------------------------------
@@ -399,7 +440,7 @@ export function segmentoDePlan(p: Plan): Segmento {
  * cuando el cliente ya eligió un nivel. Esto replica ese guion con los precios reales de la
  * base, en vez de textos fijos que se desactualizan.
  */
-type Nivel = "por_noche" | "intermedio" | "todo_incluido";
+export type Nivel = "por_noche" | "intermedio" | "todo_incluido";
 
 const TITULO_NIVEL: Record<Nivel, string> = {
   por_noche: "🏕️🌙 Planes por noche",
@@ -416,7 +457,7 @@ const RESUMEN_NIVEL: Record<Nivel, string> = {
 
 const ORDEN_NIVELES: Nivel[] = ["por_noche", "intermedio", "todo_incluido"];
 
-function nivelDePlan(p: Plan): Nivel {
+export function nivelDePlan(p: Plan): Nivel {
   const nombre = sinTildes(p.nombre ?? "");
   const todo = sinTildes(`${p.nombre ?? ""} ${p.descripcion ?? ""}`);
   const tieneSpa = /spa/.test(todo);
@@ -551,13 +592,22 @@ export const consultarPlanesTool: ToolDefinition = {
   name: "consultar_planes",
   permitirRedaccion: true,
   description:
-    "Planes, precios y CUPO REAL de La Julita. Pásale SIEMPRE el `segmento` (pareja, familia, amigas, solo o pasadia) en cuanto lo sepas, y la `fecha` si la tienes. Sin `nivel` devuelve el MENÚ DE TRES EXPERIENCIAS (planes por noche / intermedios / todo incluido) con su precio 'desde' — es lo primero que se le muestra al cliente. Cuando el cliente elige una, llámala otra vez con `nivel` y devuelve hasta 3 planes concretos de ese nivel, YA con el cupo real de esa fecha (consulta el motor de reservas en línea). Con `plan` devuelve el detalle completo de uno, también con el cupo si hay `fecha`. Pásale siempre `personas` y, si la sabes, `fecha` (así cotiza un solo precio, el de ese día, Y te dice si hay cupo). Los precios y lo que incluye cada plan salen SIEMPRE de acá, nunca de tu memoria — y lo mismo la disponibilidad: si la respuesta no trae un dato de cupo explícito, no inventes uno.",
+    "Planes, precios y CUPO REAL de La Julita. Pásale SIEMPRE el `segmento` (pareja, familia, amigas, solo o pasadia) en cuanto lo sepas, y la `fecha` si la tienes. Sin `nivel` devuelve el MENÚ DE TRES EXPERIENCIAS (planes por noche / intermedios / todo incluido) con su precio 'desde' — es lo primero que se le muestra al cliente. Cuando el cliente elige una, llámala otra vez con `nivel` y devuelve hasta 3 planes concretos de ese nivel, YA con el cupo real de esa fecha (consulta el motor de reservas en línea). Con `plan` devuelve el detalle completo de uno, también con el cupo si hay `fecha`. Pásale siempre `personas` y, si la sabes, `fecha` (así cotiza un solo precio, el de ese día, Y te dice si hay cupo). GRUPOS: si son más de 4 personas (o más de 3 adultos), pásale `personas`, `adultos`, `ninos` y la `fecha`: arma la reserva en VARIOS domos (familiares primero, parejas después) con el total ya sumado — ese mensaje sale tal cual, no lo recalcules. Los precios y lo que incluye cada plan salen SIEMPRE de acá, nunca de tu memoria — y lo mismo la disponibilidad: si la respuesta no trae un dato de cupo explícito, no inventes uno.",
   parameters: {
     type: "object",
     properties: {
       personas: {
         type: "integer",
         description: "Para cuántas personas es. Pregúntaselo al cliente antes de mostrar planes si no lo sabes.",
+      },
+      adultos: {
+        type: "integer",
+        description:
+          "Cuántos son adultos. Importa cuando son más de 3 personas: un domo admite máximo 3 adultos (o 2 adultos y 2 niños), y con este dato la herramienta arma la reserva en varios domos. Si el cliente no lo dijo, omítelo: se cuentan todos como adultos y se le pregunta.",
+      },
+      ninos: {
+        type: "integer",
+        description: "Cuántos son niños. Va junto con `adultos`.",
       },
       ocasion: {
         type: "string",
@@ -607,6 +657,8 @@ export const consultarPlanesTool: ToolDefinition = {
     args: {
       segmento?: Segmento;
       personas?: number;
+      adultos?: number;
+      ninos?: number;
       ocasion?: string;
       fecha?: string;
       festivo?: boolean;
@@ -686,10 +738,25 @@ export const consultarPlanesTool: ToolDefinition = {
         // eso ahora el texto de respaldo ya sale presentable por su cuenta: nombre en negrita
         // (un solo asterisco, que es como WhatsApp la muestra) y el precio con su emoji. El
         // cuerpo de la descripción sigue saliendo tal como está cargado en el panel.
+        // [2026-09-14 → 2026-09-17] Video o imagen del plan (`planes.link_video`, se carga en el
+        // panel). Un link de YouTube va como texto al final; una URL directa a un archivo va
+        // como VIDEO o IMAGEN NATIVA de WhatsApp (runTurn la manda aparte, ver ToolResult).
+        const link = limpiar(p.link_video);
+        const esYoutube = link ? /youtube\.com|youtu\.be/i.test(link) : false;
+        const esImagen = link ? /\.(jpg|jpeg|png|gif|webp|bmp)(\?.*)?$/i.test(link) : false;
+        const nativoUrl = link && !esYoutube ? link : undefined;
+        const videoNativo = nativoUrl && !esImagen ? nativoUrl : undefined;
+        const imagenNativa = nativoUrl && esImagen ? nativoUrl : undefined;
         const texto =
           `*${limpiar(p.nombre)}*${personas}\n💰 ${lineaPrecio}` +
-          `${detalle ? `\n\n${detalle}` : ""}${lineaCupo}`;
-        return { result: { ...p, cupo: cupo ?? null }, reply_to_user: texto };
+          `${detalle ? `\n\n${detalle}` : ""}${lineaCupo}` +
+          `${link && esYoutube ? `\n\n📹 Video: ${linkVideoLimpio(link)}` : ""}`;
+        return {
+          result: { ...p, cupo: cupo ?? null },
+          reply_to_user: texto,
+          ...(videoNativo ? { videoUrl: videoNativo } : {}),
+          ...(imagenNativa ? { imageUrl: imagenNativa } : {}),
+        };
       }
 
       if (coincidencias.length > 1) {
@@ -699,6 +766,23 @@ export const consultarPlanesTool: ToolDefinition = {
           "\n\n¿Cuál de esos quieres que te detalle?";
         return { result: coincidencias, reply_to_user: texto };
       }
+    }
+
+    // ---- Grupos que no caben en un domo: varios domos, familiares primero ----
+    // [2026-09-17] Ver grupos.ts. Antes, con 15 personas, esto seguía a los filtros de abajo,
+    // no encontraba ningún plan "para 15" y el modelo terminaba derivando al equipo.
+    const reparto = repartoDeclarado(args ?? {});
+    if (esGrupo(reparto)) {
+      return armarPropuestaGrupo({
+        planes,
+        cat,
+        tarifa,
+        fecha: args?.fecha,
+        disponibilidad,
+        reparto,
+        nivel: args?.nivel as Nivel | undefined,
+        tipo: args?.tipo,
+      });
     }
 
     // ---- Filtros ----
