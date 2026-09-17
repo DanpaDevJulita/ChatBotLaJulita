@@ -1,0 +1,47 @@
+# Fly.io configuration para Bot La Julita
+# Deploy: flyctl deploy
+
+app = "bot-lajulita"
+primary_region = "mia"  # Miami (LATAM, latencia baja)
+
+[build]
+builder = "paacketo"  # Detecta Node.js automáticamente
+
+[env]
+NODE_ENV = "production"
+
+[[services]]
+internal_port = 3000
+protocol = "tcp"
+processes = ["web"]
+
+[[services.ports]]
+port = 80
+handlers = ["http"]
+
+[[services.ports]]
+port = 443
+handlers = ["tls", "http"]
+
+# El worker no expone puerto (solo consume de Redis)
+# Pero también corre como un process
+
+[checks]
+# Health check del web
+[checks.http]
+grace_period = "10s"
+interval = "30s"
+method = "GET"
+path = "/health"
+protocol = "http"
+timeout = "5s"
+
+[[processes]]
+name = "web"
+cmd = "npm run web"
+
+[[processes]]
+name = "worker"
+cmd = "npm run worker"
+auto_start = true
+auto_stop = true

@@ -33,9 +33,13 @@
     "prueba:link-video-plan": "tsx pruebas/e2e-link-video-plan.ts",
     "prueba:simulacion-kommo": "tsx pruebas/simulacion-kommo.ts",
     "prueba:promociones": "tsx pruebas/e2e-promociones.ts",
-    "prueba:catalogo-whatsapp": "tsx pruebas/e2e-catalogo-whatsapp.ts"
+    "prueba:catalogo-whatsapp": "tsx pruebas/e2e-catalogo-whatsapp.ts",
+    "prueba:resumen-opciones": "tsx pruebas/e2e-resumen-opciones.ts",
+    "prueba:presentacion": "tsx pruebas/e2e-presentacion.ts",
+    "prueba:recontacto-huerfano": "tsx pruebas/e2e-recontacto-huerfano.ts"
   },
   "dependencies": {
+    "tsx": "^4.19.0",
     "@supabase/supabase-js": "^2.114.0",
     "axios": "^1.7.7",
     "bullmq": "^5.21.0",
@@ -51,7 +55,6 @@
     "@types/express-session": "^1.19.0",
     "@types/node": "^22.7.0",
     "@types/nodemailer": "^6.4.16",
-    "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }
 }
