@@ -28,13 +28,20 @@ export interface Politica {
  * `presentar_glamping`). Vive en esta misma tabla para no crear una tabla nueva por una sola
  * fila, y porque acá ya hay cache y edición desde el panel. `consultar_politicas` no la devuelve
  * nunca: esa herramienta mapea sus temas solo a las cuatro claves de condiciones.
+ *
+ * [2026-09-18] `saludo_bienvenida` es el mensaje con el que arranca TODA conversación nueva, el
+ * que trae el aviso de la política de datos. Lo manda el pipeline antes de atender el primer
+ * mensaje (ver saludarSiEsElPrimerMensaje en core/pipeline/runTurn.ts), no el modelo, y vive acá
+ * para que el equipo lo pueda cambiar desde el panel. Es la única clave con copia de respaldo en
+ * el código: sin ella, una caída de la base dejaría al cliente sin el aviso legal.
  */
 export type ClavePolitica =
   | "terminos_reserva"
   | "antes_de_reservar"
   | "saldo_pendiente"
   | "cambios_corta"
-  | "presentacion_general";
+  | "presentacion_general"
+  | "saludo_bienvenida";
 
 // Mismo cache que faqRepo: el bot puede recibir varios mensajes seguidos y estos textos casi
 // nunca cambian. 30 segundos alcanza para que una edición del equipo se vea casi enseguida.

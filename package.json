@@ -40,7 +40,10 @@
     "prueba:resumen-opciones": "tsx pruebas/e2e-resumen-opciones.ts",
     "prueba:presentacion": "tsx pruebas/e2e-presentacion.ts",
     "prueba:recontacto-huerfano": "tsx pruebas/e2e-recontacto-huerfano.ts",
-    "prueba:plan-para-el-grupo": "tsx pruebas/e2e-plan-para-el-grupo.ts"
+    "prueba:plan-para-el-grupo": "tsx pruebas/e2e-plan-para-el-grupo.ts",
+    "prueba:alternativas-por-plan": "tsx pruebas/e2e-alternativas-por-plan.ts",
+    "prueba:saludo-politicas": "tsx pruebas/e2e-saludo-politicas.ts",
+    "prueba:solo-con-cupo": "tsx pruebas/e2e-solo-ofrece-con-cupo.ts"
   },
   "dependencies": {
     "tsx": "^4.19.0",

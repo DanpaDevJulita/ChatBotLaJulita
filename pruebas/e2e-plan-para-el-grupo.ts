@@ -67,9 +67,17 @@ console.log("\nCASO 1. Pareja preguntando por el domo deluxe\n");
     `le cotizó $${PRECIO_DE_ESE_PLAN}, que es de un plan donde no caben los dos`
   );
   revisar(
-    /solo para 1 persona|no les sirve/i.test(texto),
+    /Ese plan es para (1|una) persona/i.test(texto),
     "le explica que ese plan es para una sola persona",
-    "no le explica por qué no le sirve"
+    `no le explica por qué no le sirve: "${texto.split("\n")[0]}"`
+  );
+  // [2026-09-18] El mensaje habla del PLAN, nunca del domo: Daniel corrigió la primera versión
+  // ("el plan que tengo con 'domo deluxe' es solo para 1 persona") porque sonaba a que en ese
+  // domo no caben dos, y el Domo Deluxe sí recibe parejas.
+  revisar(
+    !/domo\s+deluxe\s+(es|solo)/i.test(texto),
+    "no dice que el domo sea para una sola persona",
+    `el mensaje le echa la culpa al domo: "${texto.split("\n")[0]}"`
   );
   revisar(
     /DOS PERSONAS/i.test(texto),

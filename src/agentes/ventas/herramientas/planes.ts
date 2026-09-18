@@ -905,6 +905,12 @@ export const consultarPlanesTool: ToolDefinition = {
           if (cap != null && cap < grupo) return false;
           if (tipoDePlan(p) === "pasadia" && args?.tipo !== "pasadia") return false;
           if (tarifa && precioPara(p, tarifa) == null) return false;
+          // [2026-09-18] Y con CUPO esa fecha. Daniel lo reportó sobre esta misma lista: el
+          // cliente eligió uno de los planes que ésta le ofreció y le contestaron que no había
+          // disponibilidad. "Si ya sabes cuántas personas y la fecha, debes mostrar planes que
+          // estén disponibles para ese día." Lo que no se puede confirmar (undefined) se deja
+          // pasar: ahí el mensaje del plan ya avisa que el cupo lo confirma el equipo.
+          if (cupoParaPlan(p, cat, disponibilidad) === false) return false;
           return true;
         });
         const delSegmento = leSirven.filter((p) => segmentoDePlan(p) === segmentoDelGrupo);
@@ -919,20 +925,34 @@ export const consultarPlanesTool: ToolDefinition = {
           .slice(0, PLANES_POR_TANDA);
 
         const capacidades = [...new Set(porNombre.map((p) => capacidadDePlan(p, cat)).filter((c): c is number => c != null))];
-        const paraCuantos = capacidades.length === 1 ? `es solo para ${textoPersonas(capacidades[0])}` : "no alcanza para ustedes";
-        const queBuscaba = limpiar(args?.plan);
-
         const lineas = alternativas.map((p) => {
           const precio = tarifa ? precioPara(p, tarifa) : null;
           const valor = precio != null ? `${formatMoney(precio)} ${ETIQUETA_TARIFA[tarifa as Tarifa]}` : preciosDe(p);
           return `• ${limpiar(p.nombre)}: ${valor}`;
         });
 
-        const apertura = `El plan que tengo con "${queBuscaba}" ${paraCuantos}, así que para ${textoPersonas(grupo)} no les sirve 🙈`;
+        // [2026-09-18] La apertura habla del PLAN, nunca del domo. Daniel corrigió la primera
+        // versión, que decía "el plan que tengo con 'domo deluxe' es solo para 1 persona": suena
+        // a que en ese domo no caben dos, y no es cierto — el Domo Deluxe recibe parejas, lo que
+        // pasa es que el único plan cuyo NOMBRE lo menciona es el de una persona. Cuál domo usa
+        // cada plan hoy no se puede saber desde la base (`planes.domos_id` está en [1] para los
+        // 20), así que el bot no afirma nada sobre el domo: habla del plan, que sí sabe.
+        const apertura =
+          capacidades.length === 1
+            ? `Ese plan es para ${textoPersonas(capacidades[0])} 🙈`
+            : "Ese plan no les alcanza para todos 🙈";
+        const paraLaFecha = args?.fecha ? " para esa fecha" : "";
+        // Sin alternativas y con fecha, lo que falta no es otro plan: es otro día. Se encadena la
+        // búsqueda para que el cliente reciba las fechas libres en este mismo turno.
+        const buscarOtrasFechas = alternativas.length === 0 && Boolean(args?.fecha);
         const texto =
           alternativas.length > 0
-            ? `${apertura}\n\nEstos sí:\n${lineas.join("\n")}\n\n¿Te cuento qué incluye alguno? 💚`
-            : `${apertura}\n\n¿Quieres que te muestre las opciones que sí tengo para ustedes?`;
+            ? `${apertura}\n\nPara ${textoPersonas(grupo)}${paraLaFecha} tengo estos:\n${lineas.join("\n")}\n\n` +
+              "¿Te cuento qué incluye alguno? 💚"
+            : buscarOtrasFechas
+              ? `${apertura}\n\nY para esa fecha ya no me queda cupo para ${textoPersonas(grupo)} 😔 ` +
+                "Déjame mirarte las fechas cercanas que sí tengo."
+              : `${apertura}\n\n¿Quieres que te muestre las opciones que sí tengo para ustedes?`;
 
         return {
           result: {
@@ -945,6 +965,7 @@ export const consultarPlanesTool: ToolDefinition = {
           // Literal: cada línea casa un plan con su precio, y es justo el mensaje que tiene que
           // dejar claro para cuántas personas es cada cosa.
           forzarTextoLiteral: true,
+          ...(buscarOtrasFechas ? { forzarSiguienteHerramienta: "consultar_fechas_alternativas" } : {}),
         };
       }
 
@@ -1091,6 +1112,52 @@ export const consultarPlanesTool: ToolDefinition = {
     if (tarifa) {
       const disponibles = candidatos.filter((p) => precioPara(p, tarifa) != null);
       if (disponibles.length > 0) candidatos = disponibles;
+    }
+
+    /**
+     * [2026-09-18] NO SE OFRECE LO QUE YA SABEMOS QUE NO TIENE CUPO.
+     *
+     * Regla de Daniel, sobre una conversación real: "si ofreces algo es porque sí tiene
+     * disponibilidad". El cliente pidió para hoy, el bot le mostró el menú de las tres
+     * experiencias con sus tres precios, el cliente eligió la más económica… y recién ahí le
+     * dijeron que esa no tenía cupo. El cupo ya se había consultado ANTES de armar ese menú: el
+     * dato estaba, simplemente no se usaba para filtrar.
+     *
+     * Solo se descarta lo que se sabe que NO: `cupoParaPlan` devuelve `undefined` cuando no se
+     * puede afirmar nada (LobbyPMS caído, o un plan cuya categoría no reconocemos) y eso se deja
+     * pasar, porque ahí el mensaje ya avisa que el cupo lo confirma el equipo. Descartar los
+     * "no sé" dejaría al cliente sin nada que ver cada vez que la API tiene un mal momento.
+     */
+    let sinCupoEsaFecha = 0;
+    if (disponibilidad) {
+      const conCupo = candidatos.filter((p) => cupoParaPlan(p, cat, disponibilidad) !== false);
+      sinCupoEsaFecha = candidatos.length - conCupo.length;
+      if (sinCupoEsaFecha > 0) {
+        console.log(
+          `[planes] ${args?.fecha}: ${sinCupoEsaFecha} plan(es) sin cupo esa fecha no se le muestran al cliente.`
+        );
+      }
+      candidatos = conCupo;
+    }
+
+    // Todo lo que le servía a este cliente está ocupado ese día. En vez de mostrarle una lista
+    // que no puede tomar (o el "no tengo plan con precio cargado", que suena a error del bot),
+    // se lo dice y se encadena la búsqueda de fechas: el cliente recibe las alternativas en este
+    // mismo turno, sin tener que pedirlas.
+    if (candidatos.length === 0 && sinCupoEsaFecha > 0) {
+      return {
+        result: {
+          sin_cupo: true,
+          fecha: args?.fecha,
+          personas: personas || null,
+          segmento: segmento ?? null,
+          planes_ocupados_esa_fecha: sinCupoEsaFecha,
+        },
+        reply_to_user:
+          `Para esa fecha ya no me queda cupo${personas > 0 ? ` para ${textoPersonas(personas)}` : ""} 😔 ` +
+          "Déjame mirarte las fechas cercanas que sí tengo libres.",
+        forzarSiguienteHerramienta: "consultar_fechas_alternativas",
+      };
     }
 
     // ---- Modo "ver otras opciones" (de a 3, alternando alojamiento) ----

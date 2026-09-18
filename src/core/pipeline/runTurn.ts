@@ -15,6 +15,8 @@ import { enviarSeguro, enviarVideoSeguro, enviarImageSeguro, enviarCatalogoSegur
 import { programarRecontacto, cancelarRecontacto } from "../queue/recontactoQueue.js";
 import { intentarComando } from "./comandos.js";
 import { bloqueDeCorrecciones } from "../db/correccionesRepo.js";
+// [2026-09-18] El saludo con el aviso de la política de datos, que abre toda conversación nueva.
+import { politica } from "../db/politicasRepo.js";
 import { notificarEscalamiento } from "./notificarEquipo.js";
 
 // [2026-09-10] Cada agente (un "bot") vive en su propia carpeta bajo src/agentes/ con su prompt
@@ -110,6 +112,53 @@ const ultimosArgsDePlanes = new Map<string, Record<string, unknown>>();
  * Solo el grupo: la `fecha`, el `plan` o el `nivel` cambian a cada rato dentro de una misma
  * charla, y arrastrarlos sería contestar sobre algo que el cliente ya no está preguntando.
  */
+/**
+ * [2026-09-18] EL SALUDO CON EL AVISO DE LA POLÍTICA DE DATOS VA SIEMPRE PRIMERO.
+ *
+ * Regla de Daniel, después de verlo fallar: "primero, ¿por qué no envió mensaje de políticas?
+ * Eso es súper importante, y debe ser el primer mensaje". Venía siendo una instrucción del
+ * prompt, o sea una sugerencia: al primer mensaje del cliente el modelo decidía si saludaba o
+ * contestaba. El día que una herramienta devuelve texto literal (por ejemplo `presentar_glamping`
+ * ante un "info"), ese texto ES el mensaje del turno y el saludo no sale nunca — que es
+ * exactamente lo que pasó a las 10:49.
+ *
+ * Ahora lo manda el pipeline, antes de que el turno corra: si esta conversación no tiene ni un
+ * mensaje previo, sale el saludo y recién después se atiende lo que el cliente escribió. El
+ * aviso de datos es lo que respalda toda la conversación que sigue, así que no puede depender de
+ * lo que el modelo elija hacer.
+ *
+ * El texto vive en `politicas` (clave `saludo_bienvenida`) para que el equipo lo edite desde el
+ * panel. El respaldo de abajo es la única copia de un texto que también está en la base, y es a
+ * propósito: con la base caída, la alternativa no es "saludar con un texto de hace un mes", es
+ * no darle al cliente el aviso legal. Si se cambia el oficial, hay que cambiar este también.
+ */
+const SALUDO_RESPALDO =
+  "✨ ¡Hola! Soy Estefany de La Julita Glamping 🌿🏕️ Me encantaría ayudarte a elegir el plan perfecto.\n" +
+  "📌 Al continuar aceptas nuestra política de datos 👉 https://lajulitaglamping.com.co/politica-de-privacidad/\n" +
+  "Cuéntame 👇 ¿vienen en pareja, en familia o con amigas? 📆 ¿y para qué fecha?";
+
+async function saludarSiEsElPrimerMensaje(
+  event: InboundEvent,
+  key: string,
+  history: any[],
+  adapter: ChannelAdapter
+): Promise<void> {
+  const texto = (await politica("saludo_bienvenida")) ?? SALUDO_RESPALDO;
+  const entregado = await enviarSeguro(adapter, event.externalId, texto, key);
+  if (!entregado) return;
+
+  await insertMensaje({
+    canal: event.channel,
+    external_id: event.externalId,
+    role: "assistant",
+    content: texto,
+    agent_name: "saludo",
+  });
+  // Al historial también: si no, el modelo no sabe que ya se saludó y vuelve a presentarse.
+  history.push({ role: "assistant", content: texto });
+  console.log(`[runTurn] ${key}: primer mensaje de esta conversación — mandado el saludo con el aviso de datos.`);
+}
+
 const CAMPOS_DE_GRUPO = ["personas", "segmento", "adultos", "ninos"] as const;
 
 function completarGrupoDeLaConversacion(key: string, args: Record<string, unknown>): void {
@@ -307,8 +356,14 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
   }
 
   const history = await loadHistory(event.channel, event.externalId, key);
+  // Antes de nada: ¿es la primera vez que esta persona escribe? (ver saludarSiEsElPrimerMensaje).
+  const esElPrimerMensaje = history.length === 0;
   history.push({ role: "user", content: event.text ?? "" });
   await insertMensaje({ canal: event.channel, external_id: event.externalId, role: "user", content: event.text ?? "" });
+
+  // El saludo sale ya, sin esperar al modelo: es el aviso de la política de datos y tiene que
+  // ser lo primero que lea el cliente. Lo que escribió se atiende igual, en este mismo turno.
+  if (esElPrimerMensaje) await saludarSiEsElPrimerMensaje(event, key, history, adapter);
 
   // El orquestador decide a qué agente le toca este turno ANTES de gastar un hop de LLM
   // "de verdad" — nunca le habla al cliente, solo enruta (ver src/agentes/orquestador/prompt.md).

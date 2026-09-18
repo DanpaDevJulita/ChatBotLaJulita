@@ -6,6 +6,13 @@
  * sin pasar por `nivel` ni por el detalle de un `plan` puntual), `consultar_planes` NUNCA
  * consultaba LobbyPMS — así que el domo familiar salía con precio y sin ningún aviso de cupo,
  * aunque estuviera lleno. Esta prueba fija ese escenario exacto.
+ *
+ * [2026-09-18] El caso 1 cambió de expectativa, y es a propósito. Hasta hoy el plan sin cupo se
+ * mostraba igual, con un "sin cupo esa fecha" al lado; Daniel pidió que directamente no se
+ * ofrezca ("si ofreces algo es porque sí tiene disponibilidad"), después de ver dos veces al
+ * cliente elegir una opción de la lista y recibir un "esa no tiene cupo". Así que ahora lo que
+ * se verifica es más fuerte: ese plan no aparece, y en su lugar el bot avisa y sale a buscar
+ * fechas cercanas. El caso 2 (sí hay cupo) sigue igual.
  */
 process.env.SUPABASE_URL ||= "https://prueba.supabase.co";
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= "prueba";
@@ -44,13 +51,23 @@ console.log("CASO 1. Domo familiar SIN cupo esa fecha: el cliente pide plan fami
   console.log(r.reply_to_user.split("\n").map((l: string) => `  | ${l}`).join("\n"));
 
   revisar(
-    /sin cupo esa fecha/i.test(r.reply_to_user),
-    "el plan familiar sale marcado como SIN cupo para esa fecha",
-    "el plan familiar salió como si tuviera cupo (bug reproducido)"
+    !/PLAN FAMILIAR/i.test(r.reply_to_user),
+    "el plan familiar no se le ofrece esa fecha",
+    "le ofreció el plan familiar teniendo los domos llenos (bug reproducido)"
+  );
+  revisar(
+    r.result?.sin_cupo === true,
+    "la herramienta avisa que esa fecha no tiene cupo para ese grupo",
+    "no avisó que la fecha estaba sin cupo"
+  );
+  revisar(
+    r.forzarSiguienteHerramienta === "consultar_fechas_alternativas",
+    "sale a buscar fechas cercanas en el mismo turno",
+    "dejó al cliente sin alternativa"
   );
   revisar(
     !/le pido al equipo que te confirme el cupo/i.test(r.reply_to_user),
-    "el cierre no repite \"le pido al equipo que confirme el cupo\" (ya se mostró el cupo real)",
+    "el cierre no repite \"le pido al equipo que confirme el cupo\" (ya se consultó el cupo real)",
     "el cierre sigue diciendo que hay que confirmar cupo con el equipo, siendo que ya se consultó"
   );
 }
