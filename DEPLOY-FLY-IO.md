@@ -30,8 +30,8 @@ flyctl launch
 ```
 
 **Responde las preguntas:**
-- App name: `bot-lajulita` (o el que quieras)
-- Primary region: `mia` (Miami — LATAM, baja latencia)
+- App name: `botlajulita` (o el que quieras)
+- Primary region: `gru` (São Paulo — la más cercana a Colombia)
 - Copy Postgres? → `n` (usas Supabase externo)
 - Copy Redis? → `n` (usas Upstash externo)
 
@@ -41,6 +41,11 @@ Esto crea `fly.toml` (ya existe en el repo, no sobrescribe).
 
 ## Paso 3: Configurar variables de entorno
 
+> **No uses el campo "Variables ambientales" del formulario web de Fly para los tokens.** Ahí
+> quedan como variables de entorno normales, legibles en la configuración de la app. Todo lo que
+> sea clave o token va por `fly secrets set`, que las guarda cifradas y solo las expone al
+> proceso en ejecución.
+
 ```bash
 flyctl secrets set \
   REDIS_URL="tu-url-de-upstash" \
@@ -48,14 +53,14 @@ flyctl secrets set \
   SUPABASE_SERVICE_ROLE_KEY="tu-key" \
   OPENROUTER_API_KEY="tu-key" \
   OWNER_WHATSAPP_NUMBERS="tu-numero" \
-  PORT=3000
+  PORT=8080
 ```
 
 **Todas las variables requeridas:**
 
 ```bash
 flyctl secrets set \
-  PORT="3000" \
+  PORT="8080" \
   NODE_ENV="production" \
   REDIS_URL="rediss://..." \
   SUPABASE_URL="https://..." \
@@ -106,7 +111,7 @@ Esto:
 1. Detecta que tienes Node.js (por package.json)
 2. Instala dependencias (`npm install`)
 3. Inicia dos procesos según Procfile:
-   - **web:** `npm run web` (Express, puerto 3000)
+   - **web:** `npm run web` (Express, puerto 8080)
    - **worker:** `npm run worker` (colas BullMQ)
 4. Sube a Fly.io
 5. Te da una URL pública
@@ -141,11 +146,11 @@ Deberías ver:
 En YCloud y Bold, cambia la URL de webhook de tu máquina a:
 
 ```
-https://bot-lajulita.fly.dev/webhooks/whatsapp
-https://bot-lajulita.fly.dev/webhooks/bold
+https://botlajulita.fly.dev/webhooks/whatsapp
+https://botlajulita.fly.dev/webhooks/bold
 ```
 
-(Reemplaza `bot-lajulita` por el nombre de tu app en Fly.io)
+(Reemplaza `botlajulita` por el nombre de tu app en Fly.io)
 
 ---
 
@@ -187,12 +192,48 @@ flyctl deploy
 
 ---
 
-## Costo estimado
+## Costo real (verificado en la tabla de precios de Fly, 2026-09-18)
 
-- **Compute (variable):** $48/mes (200 chats/día, 10 paralelo)
-- **Base Fly.io:** $3/mes
-- **Redis Upstash:** $10-20/mes
-- **TOTAL:** ~$61-70/mes
+Fly cobra por **máquina asignada corriendo**, a precio fijo — no por consumo variable. Los
+precios de `shared-cpu-1x` en la tabla oficial son: 256MB $1.94/mes, 512MB $3.19, 1GB $5.70,
+2GB $10.70.
+
+| Concepto | Costo/mes |
+|---|---|
+| Máquina `web` — shared-cpu-1x, 512MB | $3.19 |
+| Máquina `worker` — shared-cpu-1x, 1GB | $5.70 |
+| IP de salida estática (IPv4, para LobbyPMS) | $3.60 |
+| **Subtotal Fly.io** | **$12.49** |
+| Redis Upstash (aparte) | $0-20 según plan |
+| **TOTAL** | **~$12-32** |
+
+---
+
+## La IP de salida fija para LobbyPMS
+
+Esto es lo que resuelve el problema de fondo: LobbyPMS exige autorizar la IP desde la que el bot
+llama a su API, y hoy esa IP cambia sola cada pocos días.
+
+**Por defecto en Fly la IP de salida NO es estable** — su documentación lo dice explícitamente:
+el tráfico IPv4 sale por NAT y la dirección cambia según dónde corra o se reinicie la máquina.
+Pero se puede pedir una fija:
+
+```bash
+fly ips allocate-egress --app botlajulita -r gru
+```
+
+Eso asigna un par IPv4 + IPv6 **fijo para la app**, que sobrevive a los despliegues y a que las
+máquinas se recreen. Cuesta **$3.60/mes** (solo se cobra la IPv4).
+
+Detalles que importan:
+- Es **por región**. Como todo está en `gru`, con una alcanza.
+- Soporta hasta 64 máquinas por IP. Nosotros tenemos 2.
+- Solo se libera si corres `fly ips release-egress` a mano.
+- **Es UNA sola IP**, no tres — más fácil de autorizar en LobbyPMS que la alternativa de Railway,
+  que en su plan Pro ($20/mes) entrega tres IPs balanceadas.
+
+Una vez asignada, se ve con `fly ips list` y se pega en LobbyPMS →
+Configuraciones → API → Restricciones → "+ Agregar dirección IP".
 
 ---
 

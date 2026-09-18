@@ -1,47 +1,51 @@
-# Fly.io configuration para Bot La Julita
+# Fly.io — Bot La Julita
+#
+# Dos grupos de proceso, porque el bot son dos programas distintos que NO comparten memoria:
+#   web    → Express: recibe los webhooks de YCloud y Bold y encola el mensaje.
+#   worker → BullMQ: saca de la cola, corre el turno del bot y responde.
+# Sin el worker encendido los mensajes se encolan y nadie contesta nunca.
+#
 # Deploy: flyctl deploy
 
-app = "bot-lajulita"
-primary_region = "gru"  # São Paulo, Brasil (LATAM, latencia más baja a Colombia)
-
-[build]
-builder = "paacketo"  # Detecta Node.js automáticamente
+app = "botlajulita"
+primary_region = "gru"  # São Paulo — la región más cercana a Colombia de las que ofrece Fly.
 
 [env]
-NODE_ENV = "production"
+  NODE_ENV = "production"
+  # 8080 es el puerto por defecto de Fly y el que ellos recomiendan. src/web/start.ts lee PORT,
+  # así que basta con declararlo acá; no hay que tocar el código.
+  PORT = "8080"
 
-[[services]]
-internal_port = 3000
-protocol = "tcp"
-processes = ["web"]
+[processes]
+  web = "npm run web"
+  worker = "npm run worker"
 
-[[services.ports]]
-port = 80
-handlers = ["http"]
+[http_service]
+  internal_port = 8080
+  force_https = true
+  processes = ["web"]
+  # "off" = Fly NUNCA apaga la máquina. Es deliberado: un webhook de WhatsApp que llega a una
+  # máquina dormida se demora en despertar, y el cliente ya está esperando.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
 
-[[services.ports]]
-port = 443
-handlers = ["tls", "http"]
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
 
-# El worker no expone puerto (solo consume de Redis)
-# Pero también corre como un process
+# El worker no aparece en [http_service] a propósito: no escucha HTTP, solo consume de Redis.
+# Eso también lo deja fuera del apagado automático del proxy, que es justo lo que queremos.
 
-[checks]
-# Health check del web
-[checks.http]
-grace_period = "10s"
-interval = "30s"
-method = "GET"
-path = "/health"
-protocol = "http"
-timeout = "5s"
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["web"]
 
-[[processes]]
-name = "web"
-cmd = "npm run web"
-
-[[processes]]
-name = "worker"
-cmd = "npm run worker"
-auto_start = true
-auto_stop = true
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+  processes = ["worker"]
