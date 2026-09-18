@@ -24,11 +24,25 @@ primary_region = "gru"  # São Paulo — la región más cercana a Colombia de l
   internal_port = 8080
   force_https = true
   processes = ["web"]
-  # "off" = Fly NUNCA apaga la máquina. Es deliberado: un webhook de WhatsApp que llega a una
-  # máquina dormida se demora en despertar, y el cliente ya está esperando.
-  auto_stop_machines = "off"
+  # Escalado horizontal automático del web.
+  #
+  # min_machines_running = 1 → SIEMPRE hay una máquina despierta. Es lo que evita el arranque en
+  # frío: un webhook de WhatsApp que cae en una máquina dormida hace esperar al cliente.
+  #
+  # auto_start + auto_stop "stop" → si la concurrencia pasa del soft_limit, el proxy enciende
+  # máquinas extra; cuando el pico baja las apaga y dejás de pagarlas. La primera nunca se apaga
+  # por el min_machines_running de arriba.
+  auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 1
+
+  # Cuándo considerar que una máquina está llena. El web solo recibe el webhook y lo encola —
+  # es trabajo livianísimo— así que estos números quedan MUY por encima de lo que vas a ver con
+  # 10 conversaciones en paralelo. Están para el día que crezca, no para hoy.
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 100
+    hard_limit = 200
 
   [[http_service.checks]]
     grace_period = "15s"
@@ -38,7 +52,13 @@ primary_region = "gru"  # São Paulo — la región más cercana a Colombia de l
     timeout = "5s"
 
 # El worker no aparece en [http_service] a propósito: no escucha HTTP, solo consume de Redis.
-# Eso también lo deja fuera del apagado automático del proxy, que es justo lo que queremos.
+# Eso también lo deja fuera del apagado automático del proxy, que es justo lo que queremos: una
+# máquina apagada que nadie despierta dejaría los mensajes encolados para siempre.
+#
+# CONSECUENCIA: el worker NO escala solo. El proxy escala lo que recibe HTTP, y el worker no
+# recibe nada. Si algún día una sola máquina no da abasto con la cola, se agrega a mano:
+#     fly scale count worker=2 --app botlajulita
+# BullMQ está hecho para eso — varios workers consumen la misma cola sin pisarse.
 
 [[vm]]
   size = "shared-cpu-1x"
