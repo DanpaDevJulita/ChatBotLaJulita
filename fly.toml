@@ -2,7 +2,7 @@
 # Deploy: flyctl deploy
 
 app = "bot-lajulita"
-primary_region = "mia"  # Miami (LATAM, latencia baja)
+primary_region = "gru"  # São Paulo, Brasil (LATAM, latencia más baja a Colombia)
 
 [build]
 builder = "paacketo"  # Detecta Node.js automáticamente
