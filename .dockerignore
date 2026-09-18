@@ -1,0 +1,27 @@
+# LO MÁS IMPORTANTE DE ESTE ARCHIVO: que el .env no entre a la imagen.
+# Los secretos viajan por `fly secrets`, cifrados y fuera de la imagen. Si el .env se copiara
+# acá quedaría horneado en cada capa, legible para cualquiera que baje la imagen.
+.env
+.env.*
+!.env.example
+
+node_modules
+npm-debug.log*
+
+.git
+.gitignore
+
+# Nada de esto hace falta para correr el bot.
+pruebas/
+scripts/
+sql/
+Claude outputs/
+
+# OJO: acá NO se excluyen los .md. Los prompts de cada agente viven en src/agentes/*/prompt.md
+# y se leen en caliente al arrancar; una regla amplia como `*.md` es justo la clase de cosa que
+# los dejaría afuera y haría arrancar el bot sin instrucciones. Los .md de documentación de la
+# raíz pesan unos KB — no vale la pena el riesgo por ahorrarlos.
+
+dist/
+.vscode/
+.idea/

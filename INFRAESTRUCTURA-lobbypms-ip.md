@@ -100,3 +100,54 @@ Van dos cambios de IP en tres días de uso real — confirma que, mientras el bo
 desde la máquina de Daniel con IP dinámica del ISP, esto va a seguir pasando cada tanto (no es
 un bug, es el trade-off ya aceptado para el ambiente de pruebas — ver sección de arriba). El
 bot no se cae cuando pasa: sigue respondiendo con el motor público mientras se reautoriza.
+
+---
+
+## RESUELTO 2026-09-18: el bot se mudó a Fly.io y la IP ahora es fija
+
+Se hizo lo que este documento venía recomendando como "opción 2": mover el bot a un hosting real
+con IP de salida fija. Ya no hay que reautorizar nada cada pocos días.
+
+**La IP a autorizar en LobbyPMS es:**
+
+```
+209.71.78.239
+```
+
+Es una *egress IP* de Fly, asignada a la app `botlajulita` en la región `gru` (São Paulo) con:
+
+```bash
+fly ips allocate-egress --app botlajulita -r gru
+```
+
+Cuesta USD 3.60/mes, está atada a la app (no a una máquina), y **sobrevive a los despliegues y a
+que las máquinas se recreen**. Solo se libera corriendo `fly ips release-egress` a mano. Se
+consulta cuando haga falta con `fly ips list --app botlajulita`.
+
+### La trampa del IPv6 — por qué hizo falta una línea extra
+
+`api.lobbypms.com` está detrás de Cloudflare y **tiene registro AAAA**
+(`2606:4700:20::681a:ba`). La documentación de Fly advierte que sus máquinas suelen salir por
+IPv6 cuando el destino tiene AAAA. Si eso pasaba, LobbyPMS habría visto la IPv6 de la app y
+habría seguido respondiendo 403 **aunque la IPv4 estuviera autorizada** — el mismo síntoma de
+siempre, con una causa completamente distinta y mucho más difícil de adivinar.
+
+Por eso el `fly.toml` declara:
+
+```toml
+NODE_OPTIONS = "--dns-result-order=ipv4first"
+```
+
+Eso hace que Node prefiera IPv4 al resolver nombres. Todos los servicios que usa el bot
+(Supabase, OpenRouter, YCloud, Bold, Upstash) responden por IPv4, así que no rompe nada.
+
+**Si alguna vez vuelve a aparecer `ip_no_autorizada`, lo primero que hay que mirar es si esa
+línea sigue en el `fly.toml`.** El error trae la IP que LobbyPMS ve: si es una dirección IPv6,
+la causa es esa y no que la IP haya cambiado.
+
+### Lo que queda del montaje viejo
+
+Las IPs `143.105.99.243`, `179.238.3.153` y `34.123.130.11` que están en la lista blanca vienen
+de cuando el bot corría en la máquina de Daniel con IP dinámica del ISP. Una vez confirmado que
+la IP de Fly funciona, se pueden borrar del panel de LobbyPMS — ya no las usa nadie, y dejarlas
+autorizadas es acceso concedido a direcciones que hoy le pertenecen a cualquier otro.

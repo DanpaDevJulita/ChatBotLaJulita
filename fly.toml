@@ -16,6 +16,15 @@ primary_region = "gru"  # São Paulo — la región más cercana a Colombia de l
   # así que basta con declararlo acá; no hay que tocar el código.
   PORT = "8080"
 
+  # Forzar IPv4 en las conexiones salientes. NO es cosmético: LobbyPMS autoriza por IP, y
+  # api.lobbypms.com tiene registro AAAA (está detrás de Cloudflare). Sin esto, Node puede
+  # preferir IPv6 y salir por la dirección IPv6 de la app — LobbyPMS vería una IP que no está
+  # en su lista blanca y seguiríamos con el 403 de siempre, aunque la IPv4 esté autorizada.
+  # La documentación de Fly lo advierte: las máquinas suelen salir por IPv6 cuando el destino
+  # tiene AAAA. Todos los servicios que usa el bot (Supabase, OpenRouter, YCloud, Bold, Upstash)
+  # responden por IPv4, así que preferirla no rompe nada.
+  NODE_OPTIONS = "--dns-result-order=ipv4first"
+
 [processes]
   web = "npm run web"
   worker = "npm run worker"
