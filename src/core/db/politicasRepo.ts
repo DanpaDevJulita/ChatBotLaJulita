@@ -19,8 +19,22 @@ export interface Politica {
   activo?: boolean;
 }
 
-/** Las claves que el código conoce. Tienen que existir en la tabla (las siembra el .sql). */
-export type ClavePolitica = "terminos_reserva" | "antes_de_reservar" | "saldo_pendiente" | "cambios_corta";
+/**
+ * Las claves que el código conoce. Tienen que existir en la tabla (las siembra el .sql).
+ *
+ * [2026-09-17] `presentacion_general` no es una condición comercial como las otras cuatro: es el
+ * texto de presentación del glamping, el que se manda cuando alguien pregunta precios sin decir
+ * fecha ni cuántas personas (ver sql/presentacion-general.sql y la herramienta
+ * `presentar_glamping`). Vive en esta misma tabla para no crear una tabla nueva por una sola
+ * fila, y porque acá ya hay cache y edición desde el panel. `consultar_politicas` no la devuelve
+ * nunca: esa herramienta mapea sus temas solo a las cuatro claves de condiciones.
+ */
+export type ClavePolitica =
+  | "terminos_reserva"
+  | "antes_de_reservar"
+  | "saldo_pendiente"
+  | "cambios_corta"
+  | "presentacion_general";
 
 // Mismo cache que faqRepo: el bot puede recibir varios mensajes seguidos y estos textos casi
 // nunca cambian. 30 segundos alcanza para que una edición del equipo se vea casi enseguida.

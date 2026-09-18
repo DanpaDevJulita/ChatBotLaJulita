@@ -1,10 +1,22 @@
 /**
- * Datos REALES de la base de La Julita, tomados de Supabase el 2026-09-11 (proyecto
- * wcjoqkvkdnueadkcbupr). Se usan para correr el bot entero sin salir a la red.
+ * Datos REALES de la base de La Julita, tomados de Supabase (proyecto wcjoqkvkdnueadkcbupr).
+ * Se usan para correr el bot entero sin salir a la red.
  *
- * Lo importante para esta prueba: las líneas de precio de las descripciones están COPIADAS
- * TAL CUAL de la base — son las que el filtro tiene que cazar. La descripción del PLAN
- * FAMILIAR 3 PERSONAS (id 30), que es el caso que falló en WhatsApp, va completa y textual.
+ * [2026-09-17] Foto REFRESCADA después de migrar las descripciones al token `$$$$` (ver
+ * scripts/migrar-precios-a-token.ts). Antes, esta foto era del 2026-09-11 y traía los precios
+ * escritos a mano dentro del texto: eran justo lo que el filtro tenía que cazar. Ese filtro ya
+ * no existe —la regla nueva es que la base manda y el bot muestra lo que ella diga— así que la
+ * foto vieja habría hecho fallar las pruebas por una razón falsa: probando un estado de la base
+ * que ya no existe.
+ *
+ * Lo que las pruebas siguen verificando, y que NO cambió: una cifra que el modelo escriba por su
+ * cuenta, sin que haya salido de una herramienta en ese mismo turno, jamás llega al cliente.
+ * Como ahora la descripción del plan 30 no trae ningún "$590.000", esa cifra sigue siendo
+ * exactamente lo que era: un número inventado que el pipeline tiene que frenar.
+ *
+ * Los precios de las columnas también se copiaron tal cual están hoy, incluidos los que se ven
+ * raros (una noche en $5.000, el pasadía en $3.690.000): son los que el equipo tiene cargados y
+ * el bot los cotiza como estén — ver la regla en src/agentes/ventas/herramientas/planes.ts.
  */
 
 export interface FilaPlan {
@@ -19,6 +31,8 @@ export interface FilaPlan {
 }
 
 /** Descripción textual del plan 30, tal cual está hoy en la base (con \r\n de Windows). */
+// [2026-09-17] Ya migrada: las tres líneas de precio usan `$$$$` y salieron las dos de recargo
+// de niños (viven en la tabla `recargos`, no acá).
 const DESCRIPCION_FAMILIAR_3 =
   "Plan Familia una noche\r\n\r\nIncluye:\r\nBienvenida\r\nHabitación tipo domo clasico\r\n" +
   "Desayuno para 3 personas\r\nCama Queen\r\nSofá cama\r\nMalla catamarán\r\nJacuzzi\r\nFogata\r\n" +
@@ -28,34 +42,36 @@ const DESCRIPCION_FAMILIAR_3 =
   "Check in (ingreso): Desde las 3 pm máxima hora de llegada 8:00 pm\r\n" +
   "Check out (salida): Medio día\r\n\r\n" +
   "Valor para tres personas una noche (padres e hijos)\r\n" +
-  "Entre semana (lunes a viernes): $590.000\r\n" +
-  "Fin de semana (sábado o domingo): $760.000\r\n" +
-  "Sábado o domingo puente festivo $860.000\r\n\r\n" +
-  "Máximo 4 personas (dos adultos y dos niños)\r\n>3 años $50.000\r\n>5 años $70.000\r\n\r\n" +
+  "Entre semana (lunes a viernes): $$$$\r\n" +
+  "Fin de semana (sábado o domingo): $$$$\r\n" +
+  "Sábado o domingo puente festivo $$$$\r\n\r\n" +
+  "Máximo 4 personas (dos adultos y dos niños)\r\n\r\n" +
   "Precio sin IVA";
 
-/** Líneas de precio textuales de los otros planes que también las traen escritas a mano. */
+/**
+ * Líneas de valor de los otros planes que las traen en el texto, tal cual están hoy en la base.
+ *
+ * El plan 3 es el único que conserva una cifra escrita: "bebidas de hasta $10.000" NO es el
+ * precio del plan (no tiene columna, no se duplica en ninguna tabla), es un tope de consumo que
+ * el equipo escribió a propósito. Antes el filtro borraba esa línea entera y el cliente ni se
+ * enteraba de que la cena venía incluida; ahora se le manda tal cual.
+ */
 const LINEAS_PRECIO: Record<number, string[]> = {
   3: ["Cena: dos platos fuertes y dos bebidas (bebidas de hasta $10.000) "],
   28: [
-    "Entre semana domo clásico o chalet (lunes a jueves): $339.000",
-    "Domo  Deluxe (lunes a jueves) $569.000",
-    "Fin de semana (viernes, sábado o domingo) domo clásico o chalet: $679.000",
-    "Domo  deluxe: $1.090.000",
-    "Fin de semana festivo (viernes, sábado o domingo) domo clásico chalet: $779.000",
-    "Domo Deluxe $1.139.000",
+    "Entre semana domo clásico o chalet (lunes a jueves): $$$$",
+    "Fin de semana (viernes, sábado o domingo) domo clásico o chalet: $$$$",
+    "Fin de semana festivo (viernes, sábado o domingo) domo clásico chalet: $$$$",
   ],
   31: [
-    "Entre semana (lunes a viernes): $590.000",
-    "Fin de semana (sábado o domingo): $760.000",
-    "Sábado o domingo puente festivo $860.000",
-    ">3 años $50.000",
-    ">5 años $70.000",
+    "Entre semana (lunes a viernes): $$$$",
+    "Fin de semana (sábado o domingo): $$$$",
+    "Sábado o domingo puente festivo $$$$",
   ],
   32: [
-    "Entre semana (lunes a viernes): $590.000",
-    "Fin de semana (sábado o domingo): $790.000",
-    "Sábado o domingo puente festivo $890.000",
+    "Entre semana (lunes a viernes): $$$$",
+    "Fin de semana (sábado o domingo): $$$$",
+    "Sábado o domingo puente festivo $$$$",
   ],
 };
 
@@ -77,11 +93,11 @@ const CRUDO: [number, string, number, number, number, number[], boolean][] = [
   [25, "PLAN INTERMEDIO DOS NOCHES DOS PERSONAS", 1019000, 1139000, 1419000, [1], true],
   [26, "PLAN PREMIUM DOS NOCHES DOS PERSONAS", 1139000, 1259000, 1529000, [1], true],
   [27, "PLAN PARAISO UNA NOCHE DOS PERSONAS", 1490000, 3000000, 0, [1], true],
-  [28, "PLAN UNA PERSONA UNA NOCHE DOMO CLASICO O CHALET", 1000, 679000, 779000, [1], true],
-  [29, "PLAN UNA PERSONA UNA NOCHE DOMO DELUXE", 1000, 1090000, 1139000, [1], true],
-  [30, "PLAN FAMILIAR 3 PERSONAS", 1000, 760000, 860000, [1], true],
+  [28, "PLAN UNA PERSONA UNA NOCHE DOMO CLASICO O CHALET", 5000, 679000, 779000, [1], true],
+  [29, "PLAN UNA PERSONA UNA NOCHE DOMO DELUXE", 5000, 1090000, 1139000, [1], true],
+  [30, "PLAN FAMILIAR 3 PERSONAS", 3000, 760000, 860000, [1], true],
   [31, "PLAN FAMILIAR 4 PERSONAS", 660000, 830000, 930000, [1], true],
-  [32, "PLAN AMIGAS 3 PERSONAS", 590000, 760000, 930000, [1], true],
+  [32, "PLAN AMIGAS 3 PERSONAS", 10000, 760000, 930000, [1], true],
   [33, "PASADIA BASICO ENTRE SEMANA (LUNES A VIERNES)", 3690000, 0, 0, [1], true],
   [34, "PASADIA INTERMEDIO DOS PERSONAS ENTRE SEMANA", 419000, 0, 0, [1], true],
   [35, "PASADIA PREMIUM DOS PERSONAS ENTRE SEMANA", 639000, 0, 0, [1], true],
@@ -120,6 +136,8 @@ export const CLASES = [
 
 /** El plan del caso que falló, y su precio real de entre semana hoy. */
 export const PLAN_PROBADO = PLANES.find((p) => p.id === 30)!;
-export const PRECIO_REAL_ENTRE_SEMANA = PLAN_PROBADO.precio_entre_semana; // 1000
+export const PRECIO_REAL_ENTRE_SEMANA = PLAN_PROBADO.precio_entre_semana;
+/** El mismo número como lo escribiría el bot ("$ 3.000"), para no repetirlo a mano en las pruebas. */
+export const PRECIO_REAL_ENTRE_SEMANA_TEXTO = `$ ${PRECIO_REAL_ENTRE_SEMANA.toLocaleString("es-CO")}`;
 /** El precio viejo que quedó pegado en la descripción y que NO debe salir nunca. */
 export const PRECIO_VIEJO_EN_DESCRIPCION = "590000";

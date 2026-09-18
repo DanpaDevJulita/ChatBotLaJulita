@@ -30,6 +30,16 @@ export async function ejecutarRecontacto(job: RecontactoJob, adapter: ChannelAda
   const key = `${job.canal}:${job.externalId}`;
   const historial = await listMensajes(job.canal, job.externalId, 20);
 
+  // [2026-09-17] Sin historial no hay a qué volver: un "recontacto" que no retoma nada es, para
+  // el cliente, un mensaje del bot salido de la nada. Pasa cuando la conversación se borró entre
+  // que el recontacto se programó y se disparó (el caso real: un /reset de Daniel, ver el comando
+  // en comandos.ts), y es peor que quedarse callado — ese mensaje pasa a ser el PRIMERO de la
+  // conversación, así que el cliente nunca ve el saludo con el aviso de la política de datos.
+  if (historial.length === 0) {
+    console.log(`[recontacto] ${key}: no queda historial de esta conversación, no mando el paso ${job.paso}.`);
+    return;
+  }
+
   const anclaMs = Date.parse(job.ancla);
   const contestoDespues = historial.some(
     (m) => m.role === "user" && m.created_at != null && Date.parse(m.created_at) > anclaMs
@@ -65,7 +75,10 @@ export async function ejecutarRecontacto(job: RecontactoJob, adapter: ChannelAda
         },
         {
           role: "user",
-          content: transcripcion || "No hay contexto previo: saluda con calidez y ofrece ayuda con los planes.",
+          // Siempre hay transcripción: arriba se descarta el recontacto cuando no queda historial.
+          // Antes esto caía en un "no hay contexto previo: saluda con calidez", que era justo lo
+          // que hacía que un recontacto huérfano se mandara igual, como un saludo de la nada.
+          content: transcripcion,
         },
       ] as any,
       temperature: 0.6,

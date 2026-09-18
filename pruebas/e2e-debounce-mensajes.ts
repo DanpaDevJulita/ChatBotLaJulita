@@ -133,6 +133,53 @@ console.log("\nCASO 3. Dos conversaciones distintas NO se mezclan ni se bloquean
   await worker.close();
 }
 
+/**
+ * [2026-09-17] Caso real: YCloud volvió a entregar un mensaje que el bot ya había contestado, 6
+ * minutos después (reintento del webhook — el bot corre detrás de un túnel de Cloudflare, así que
+ * basta un tropezón de red para que no le llegue el 200 a tiempo). Como nada miraba el id del
+ * mensaje, el bot lo tomó por nuevo y le contestó lo mismo al cliente por segunda vez.
+ *
+ * El debounce NO cubre esto: agrupa lo que llega dentro de DEBOUNCE_MS, y un reintento tarda
+ * minutos. Por eso el filtro de duplicados es una defensa aparte, antes del buffer.
+ */
+console.log("\nCASO 4. Una entrega REPETIDA del mismo mensaje no llega ni al buffer\n");
+{
+  const externalId = "+573000000205";
+  const redis = getRedisConnection();
+  await redis.del(`inbound:buffer:whatsapp:${externalId}`);
+  await redis.del("inbound:visto:whatsapp:wamid.PRUEBA_REPETIDO");
+
+  const mensaje = {
+    channel: "whatsapp",
+    externalId,
+    messageId: "wamid.PRUEBA_REPETIDO",
+    text: "Voy con mi novia",
+    timestamp: new Date().toISOString(),
+  };
+
+  await enqueueInbound(mensaje);
+  // La misma entrega otra vez, tal cual la mandaría el proveedor al reintentar.
+  await enqueueInbound({ ...mensaje });
+
+  const enBuffer = await drainInboundBuffer("whatsapp", externalId);
+  revisar(enBuffer.length === 1, "la segunda entrega se descartó: quedó un solo mensaje", `quedaron ${enBuffer.length} mensajes en el buffer`);
+
+  // Un mensaje DISTINTO del mismo cliente tiene que seguir entrando normal — el filtro descarta
+  // duplicados, no mensajes repetidos que el cliente sí escribió dos veces a propósito.
+  await enqueueInbound({ ...mensaje, messageId: "wamid.PRUEBA_OTRO", text: "Voy con mi novia" });
+  const segundo = await drainInboundBuffer("whatsapp", externalId);
+  revisar(segundo.length === 1, "un mensaje nuevo con otro id sí entra, aunque diga lo mismo", "se descartó un mensaje que NO era duplicado");
+
+  // Sin id (canales que no lo mandan, como la consola) se procesa igual: nunca se traga nada.
+  await enqueueInbound({ channel: "whatsapp", externalId, text: "sin id", timestamp: new Date().toISOString() });
+  await enqueueInbound({ channel: "whatsapp", externalId, text: "sin id", timestamp: new Date().toISOString() });
+  const sinId = await drainInboundBuffer("whatsapp", externalId);
+  revisar(sinId.length === 2, "sin messageId no se descarta nada (falla abierto)", `quedaron ${sinId.length}, se esperaban 2`);
+
+  await redis.del("inbound:visto:whatsapp:wamid.PRUEBA_REPETIDO");
+  await redis.del("inbound:visto:whatsapp:wamid.PRUEBA_OTRO");
+}
+
 console.log("\n" + "█".repeat(96));
 if (fallas === 0) {
   console.log("  RESULTADO: ✅ Los mensajes seguidos del mismo cliente ya se procesan como un solo turno.");

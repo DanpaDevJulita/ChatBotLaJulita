@@ -255,6 +255,16 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
     event.mediaType === "audio" ? "audio" : "texto"
   );
   if (comando.manejado && comando.respuesta) {
+    // [2026-09-17] /reset: el comando ya borró lo de la base, pero el historial de esta
+    // conversación vive TAMBIÉN acá, en memoria del proceso. Si no se limpia, el bot sigue
+    // recordando la charla vieja hasta el próximo reinicio y la prueba "desde ceros" arranca
+    // sucia — que es justo la advertencia que estaba escrita a mano en
+    // sql/limpiar-pruebas-numero.sql y que este comando existe para evitar.
+    if (comando.olvidarMemoria) {
+      historyByUser.delete(key);
+      ultimosArgsDePlanes.delete(key);
+      console.log(`[comandos] ${key}: olvidada la conversación en memoria (historial y args de planes).`);
+    }
     // OJO: se loguea la etiqueta que devuelve el comando, NUNCA el texto del mensaje — puede
     // traer la clave del equipo, y los logs se leen y se comparten.
     console.log(`[comandos] ${key}: ${comando.etiquetaParaLog ?? "comando atendido"}`);

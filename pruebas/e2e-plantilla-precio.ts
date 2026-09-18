@@ -74,31 +74,44 @@ console.log("CASO 1. El detalle del plan reemplaza cada $$$$ por el precio real 
   }
 }
 
-console.log("\nCASO 2. Un precio viejo escrito a mano (todavía sin migrar a $$$$) se sigue quitando\n");
+// [2026-09-17] Este caso probaba lo CONTRARIO hasta hoy: que una cifra escrita a mano en la
+// descripción se borrara antes de llegar al cliente. Esa red de seguridad existía mientras
+// quedaban planes sin migrar a `$$$$`, pero borraba por igual montos legítimos que no son el
+// precio de ningún plan — el caso real es "bebidas de hasta $10.000" del PLAN DESCANSO PREMIUM,
+// cuya línea entera desaparecía y el cliente nunca se enteraba de que la cena venía incluida.
+//
+// La regla la fijó Daniel el 2026-09-17: la base manda, el bot no opina sobre lo que haya ahí.
+// Las descripciones se administran desde el panel, así que una cifra escrita en una es
+// intencional. Lo que sigue prohibido es que el MODELO invente cifras, y de eso se encarga la
+// verificación de runTurn.ts (ver pruebas/e2e-precio.ts), no este filtro.
+console.log("\nCASO 2. Un monto escrito a mano en la descripción llega tal cual al cliente\n");
 {
   filasDe("planes").push({
     id: 998,
-    nombre: "PLAN SIN MIGRAR",
-    descripcion: "💰 Entre semana: $999.999 (precio viejo escrito a mano)\r\n\r\nOtros detalles del plan.",
+    nombre: "PLAN CON TOPE DE CONSUMO",
+    descripcion: "🍽️ Cena: dos platos fuertes y dos bebidas (bebidas de hasta $10.000)\r\n\r\nOtros detalles del plan.",
     precio_entre_semana: 590000,
     precio_fin_de_semana: 760000,
     precio_fin_de_semana_puente: 860000,
     domos_id: [],
     activo: true,
   });
-  const resultado = await consultarPlanesTool.handler({ plan: "PLAN SIN MIGRAR" }, CTX);
+  const resultado = await consultarPlanesTool.handler({ plan: "PLAN CON TOPE DE CONSUMO" }, CTX);
   const texto = resultado.reply_to_user ?? "";
-  if (texto.includes("999.999")) {
-    console.log("  ❌ el precio viejo escrito a mano llegó igual al cliente");
+  if (!texto.includes("10.000")) {
+    console.log("  ❌ el monto de la descripción se perdió: el filtro viejo sigue borrando la línea");
+    fallas++;
+  } else if (!texto.includes("dos platos fuertes")) {
+    console.log("  ❌ el monto llegó pero la línea quedó cortada");
     fallas++;
   } else {
-    console.log("  ✅ el precio viejo escrito a mano (sin $$$$) se sigue quitando, como red de seguridad");
+    console.log("  ✅ el monto de la descripción llegó completo, con su línea intacta");
   }
 }
 
 console.log("\n" + "█".repeat(96));
 if (fallas === 0) {
-  console.log("  RESULTADO: ✅ Los $$$$ de la plantilla se resuelven bien y nunca llega un precio viejo.");
+  console.log("  RESULTADO: ✅ Los $$$$ se resuelven bien y lo que está en la descripción llega tal cual.");
 } else {
   console.log(`  RESULTADO: ❌ ${fallas} falla(s).`);
   process.exitCode = 1;

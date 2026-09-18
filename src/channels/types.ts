@@ -10,6 +10,22 @@ export interface InboundEvent {
   channel: string;
   /** Identifica al remitente DENTRO de ese canal (teléfono, usuario de IG, id de contacto...) */
   externalId: string;
+  /**
+   * [2026-09-17] El id que el canal le da a ESTE mensaje (en WhatsApp/YCloud, el `wamid`). Sirve
+   * para una sola cosa, pero importante: descartar una entrega REPETIDA del mismo mensaje.
+   *
+   * Por qué hace falta: los proveedores de WhatsApp reintentan el webhook si no reciben el 200 a
+   * tiempo, y acá el bot corre detrás de un túnel de Cloudflare en la máquina de Daniel, así que
+   * un tropezón de red alcanza. El 2026-09-17 pasó en vivo: el cliente escribió "Voy con mi
+   * novia" y "De aniversario", el bot los agrupó bien y contestó a las 15:46 — y a las 15:51:56
+   * YCloud volvió a entregar "Voy con mi novia". Como nada miraba el id, el bot lo tomó por un
+   * mensaje nuevo y contestó DE NUEVO lo mismo. En el WhatsApp del cliente solo se ven sus dos
+   * mensajes y las dos respuestas del bot: la app descarta el duplicado por id, nosotros no.
+   *
+   * Es opcional porque no todo canal lo trae (la consola, por ejemplo). Sin id no hay nada que
+   * comparar y el mensaje se procesa igual — ver `enqueueInbound`.
+   */
+  messageId?: string;
   text?: string;
   mediaUrl?: string;
   mediaType?: "audio" | "image";

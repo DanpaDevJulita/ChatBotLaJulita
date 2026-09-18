@@ -81,11 +81,64 @@ function jobIdDe(channel: string, externalId: string): string {
 }
 
 /**
+ * [2026-09-17] Cuánto se recuerda el id de un mensaje ya procesado. 24 horas es de sobra: un
+ * proveedor que reintenta lo hace en minutos, no al día siguiente. Y aunque se le pase el plazo a
+ * un reintento rarísimo, lo peor que pasa es volver al comportamiento de antes (contestar dos
+ * veces), no perder un mensaje.
+ */
+const TTL_ID_VISTO_S = 24 * 60 * 60;
+
+function idVistoKey(channel: string, messageId: string): string {
+  return `inbound:visto:${channel}:${messageId}`;
+}
+
+/**
+ * [2026-09-17] ¿Este mensaje ya lo recibimos antes? Descarta una entrega REPETIDA del webhook.
+ *
+ * El caso real: el 2026-09-17, un cliente escribió "Voy con mi novia" y "De aniversario". El
+ * debounce los agrupó bien y el bot contestó a las 15:46. A las 15:51:56 YCloud volvió a entregar
+ * "Voy con mi novia" —un reintento, porque el bot corre detrás de un túnel de Cloudflare y basta
+ * un tropezón de red para que no le llegue el 200 a tiempo— y el bot lo tomó por un mensaje nuevo
+ * y contestó lo mismo otra vez. En el WhatsApp del cliente solo se ven sus dos mensajes: la app
+ * descarta el duplicado por id, nosotros no lo mirábamos.
+ *
+ * El debounce no cubre esto: agrupa lo que llega dentro de DEBOUNCE_MS (20 s), y un reintento
+ * puede tardar minutos. Son dos problemas distintos y cada uno necesita su propia defensa.
+ *
+ * FALLA ABIERTO a propósito: si Redis no responde, o el canal no manda un id, se procesa el
+ * mensaje igual. Contestar dos veces es molesto; tragarse el mensaje de un cliente es peor.
+ */
+async function yaProcesado(event: InboundEvent): Promise<boolean> {
+  if (!event.messageId) return false;
+  try {
+    const redis = getRedisConnection();
+    // SET ... NX es atómico: el primero en llegar lo crea, cualquier otro recibe null. Así, si
+    // dos entregas del mismo mensaje caen a la vez, solo una sigue adelante.
+    const creado = await redis.set(idVistoKey(event.channel, event.messageId), "1", "EX", TTL_ID_VISTO_S, "NX");
+    return creado === null;
+  } catch (err) {
+    console.error("[inboundQueue] no pude revisar si el mensaje ya llegó antes (sigo igual):", err);
+    return false;
+  }
+}
+
+/**
  * Encola un evento entrante con debounce: lo agrega al buffer de Redis de su conversación y
  * (re)agenda el trabajo que la va a procesar dentro de DEBOUNCE_MS si no llega nada más antes.
  * Ver el comentario grande de arriba para el porqué completo.
  */
 export async function enqueueInbound(event: InboundEvent): Promise<void> {
+  // Antes que nada: si es una entrega repetida del mismo mensaje, no entra ni al buffer. Si
+  // entrara, el debounce lo juntaría con lo que venga después y el cliente vería su frase
+  // duplicada dentro del turno siguiente.
+  if (await yaProcesado(event)) {
+    console.log(
+      `[inboundQueue] ${event.channel}:${event.externalId}: entrega repetida del mensaje ` +
+        `${event.messageId} — la descarto (ya se procesó).`
+    );
+    return;
+  }
+
   const q = getInboundQueue();
   const redis = getRedisConnection();
   // Nunca se descarta un mensaje: primero se guarda en el buffer, pase lo que pase después con

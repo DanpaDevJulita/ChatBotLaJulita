@@ -1,54 +1,71 @@
-# PENDIENTE — volver sobre el arreglo del bug de precios
+# ✅ RESUELTO (2026-09-17) — el bug de precios en las descripciones
 
-> **Daniel pidió (2026-09-11): cuando él diga "podemos corregir" (o algo así), recordarle este
-> punto y revisar juntos cómo arreglar esto mejor.** Este archivo existe para eso: si estás
-> leyendo el repo y Daniel menciona que hay tiempo para corregir cosas, esto es lo que quedó
-> pendiente.
+> Este archivo quedaba abierto desde el 2026-09-11 esperando a que hubiera tiempo de arreglarlo
+> bien. Daniel dio la indicación el 2026-09-17 y quedó cerrado. **Se puede borrar.** Queda un
+> rato por si alguien viene siguiendo el hilo.
+>
+> La regla vigente, para quien edita el catálogo, está en
+> [`REGLA-DESCRIPCIONES-PRECIOS.md`](REGLA-DESCRIPCIONES-PRECIOS.md).
 
 ## Qué pasaba
 
 El bot cotizaba un precio viejo aunque el equipo ya lo hubiera cambiado en Supabase. La causa
-real: **el precio está escrito dos veces**. Por un lado las columnas `precio_entre_semana`,
-`precio_fin_de_semana` y `precio_fin_de_semana_puente` (la fuente real). Por otro, **a mano,
-como texto suelto, dentro de `planes.descripcion`**. Al cambiar la columna, el texto de la
-descripción quedaba viejo, viajaba igual hacia el modelo (en el `result` de la herramienta) y
-era el que terminaba saliendo al cliente.
+real: **el precio estaba escrito dos veces**. Por un lado las columnas `precio_entre_semana`,
+`precio_fin_de_semana` y `precio_fin_de_semana_puente` (la fuente real). Por otro, a mano, como
+texto suelto, dentro de `planes.descripcion`. Al cambiar la columna, el texto quedaba viejo y era
+el que terminaba saliendo al cliente.
 
-## Qué se hizo (funciona, pero es un parche)
+## Cómo quedó
 
-1. `planes.ts` — al traer los planes de la base se descarta cualquier línea de la descripción
-   que parezca un precio (`quitarLineasDePrecio`). Se limpia **en el origen**, así ni el texto
-   ni los datos crudos que ve el modelo pueden traer el precio viejo.
-2. `runTurn.ts` — si el modelo contesta con texto libre que menciona plata sin haber llamado
-   ninguna herramienta en ese hop, se descarta la respuesta y se fuerza `consultar_planes`.
-3. `runTurn.ts` — la verificación anti-alucinación ahora corre siempre que el texto lo haya
-   escrito el modelo (antes se desactivaba sola cuando la herramienta no devolvía datos: con
-   Supabase caído el modelo podía mandar cualquier cifra sin freno).
+**La causa raíz ya no existe: el precio vive en un solo lugar.**
 
-Pruebas: `npm run prueba:precio` (7 escenarios adversariales) y `npm run prueba:pago` (5).
-Ambas pasaban al cerrar el 2026-09-11.
+1. **El token `$$$$`** (implementado el 2026-09-13). En la descripción, donde iba el número va el
+   texto literal `$$$$`, y el bot lo reemplaza por la columna que corresponda según lo que diga
+   esa misma línea ("entre semana" / "fin de semana" / "puente o festivo"). Vive en
+   `resolverPreciosEnDescripcion`, en `src/agentes/ventas/herramientas/planes.ts`.
+2. **La migración de los datos** (2026-09-17). Los 4 planes que faltaban (ids 28, 30, 31, 32) ya
+   usan el token. Lo hizo `scripts/migrar-precios-a-token.ts`, que deja respaldo en `_respaldos/`
+   y se puede volver a correr.
+3. **De paso salieron dos bloques de cifras que duplicaban otras tablas:** los precios del Domo
+   Deluxe metidos en la descripción del plan de una persona (el deluxe ya es su propio plan, el
+   id 29) y los recargos de niños de los planes familiares (viven en la tabla `recargos`, y el
+   bot los responde con `consultar_recargos`).
+4. **Se eliminó el filtro que borraba líneas con `$`.** Era el parche de 2026-09-11: descartaba
+   cualquier línea que pareciera traer un precio. Ya no protegía de nada (no quedan precios sin
+   migrar) y sí hacía daño: borraba montos legítimos que no son tarifa de ningún plan. El caso
+   concreto era el PLAN DESCANSO PREMIUM, donde "Cena: dos platos fuertes y dos bebidas (bebidas
+   de hasta $10.000)" desaparecía entera y el cliente nunca se enteraba de que la cena venía
+   incluida.
 
-## Por qué NO es la solución definitiva
+## La regla de fondo que fijó Daniel
 
-- **La causa raíz sigue viva.** 5 planes (ids 3, 28, 30, 31, 32) todavía tienen precios escritos
-  a mano en `descripcion`. El código los ignora, pero el dato sucio sigue ahí y confunde a
-  cualquiera que mire la tabla. El id 28 dice "$339.000" y su columna está en $1.000.
-- **El fallback es feo.** Cuando el modelo insiste con un precio no verificado, al cliente le
-  llega el texto CRUDO de la herramienta (la plantilla completa del plan, sin redactar). Es
-  correcto pero se nota que es un bot.
-- **El filtro es por regex.** Descarta líneas con `$` seguido de números. Si mañana alguien
-  escribe "590.000 entre semana" (sin `$`), se cuela. Hoy no pasa — se verificó plan por plan —
-  pero es frágil.
-- **Falta una regla de negocio explícita:** la descripción debería ser solo contenido (qué
-  incluye, horarios, políticas) y nunca precios.
+> "El bot no tiene por qué estar opinando de los precios que pongo en mis tablas, él solo hace
+> caso. Los valores de las tablas se deben poner como estén, así parezca descabellado; lo
+> verdadero es lo que está en la base de datos."
 
-## Ideas para cuando se retome
+O sea: si un plan está cargado en $5.000, el bot cotiza $5.000. Las tablas se administran desde el
+panel y lo que haya ahí es intencional por definición. Cualquier red de seguridad del código que
+borre, redondee o descarte una cifra que vino de la base va en contra de esto.
 
-1. Limpiar de una vez las 5 descripciones en Supabase y dejar el aviso en el panel de
-   administración: "no escribas precios acá, salen de las columnas de precio".
-2. Validar al guardar desde el panel: si la descripción trae un `$` con números, avisar.
-3. Reemplazar el volcado de plantilla por un reintento de redacción acotado (una oportunidad
-   más para el modelo, con instrucción explícita de usar SOLO la cifra de la herramienta) y
-   recién si vuelve a fallar, mandar el texto crudo.
-4. Evaluar que `descripcion` deje de viajar entera en el `result` que ve el modelo: mandarle
-   solo los campos que necesita para redactar.
+Lo que **sí** sigue bloqueado, y es otra cosa: que el *modelo* invente una cifra. Toda cifra de
+dinero del mensaje final tiene que haber salido de una herramienta en ESE MISMO turno (ver
+`montosEn` en `src/core/pipeline/runTurn.ts`). Un número que esté en la descripción sale de la
+base, así que pasa sin problema; uno que el modelo recordó de un mensaje anterior, no.
+
+## Pruebas
+
+- `npm run prueba:plantilla-precio` — el token se resuelve bien; un monto escrito a mano llega
+  intacto con su línea.
+- `npm run prueba:precio` — 7 escenarios adversariales donde el modelo intenta colar un precio
+  que no salió de la base. Los 7 pasan.
+
+Las dos suites se actualizaron el 2026-09-17: varios de sus casos comprobaban el comportamiento
+viejo (que el bot borrara cifras de la descripción), así que se dieron vuelta para verificar la
+regla nueva. La foto de datos `pruebas/datos-reales.ts` también se refrescó contra la base.
+
+## Lo único que quedó anotado
+
+El panel de administración todavía no avisa nada al guardar. Valdría la pena que, si alguien
+escribe un `$` con números en una descripción, muestre un recordatorio de que el precio del plan
+va como `$$$$` — no para bloquearlo (puede ser un monto legítimo, como el tope de las bebidas),
+solo para que no se vuelva a duplicar una tarifa por olvido.

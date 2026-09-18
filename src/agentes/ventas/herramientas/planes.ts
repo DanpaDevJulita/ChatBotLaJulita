@@ -514,7 +514,7 @@ function armarEscalera(
  * no reconocemos a qué categoría de LobbyPMS pertenece este plan) — con `undefined` el llamador
  * tiene que quedarse con el "le confirmo con el equipo" de siempre, nunca inventar un sí o un no.
  */
-function cupoParaPlan(
+export function cupoParaPlan(
   p: Plan,
   cat: CatalogoDomos,
   disponibilidad: DisponibilidadCategoria[] | null
@@ -592,7 +592,7 @@ export const consultarPlanesTool: ToolDefinition = {
   name: "consultar_planes",
   permitirRedaccion: true,
   description:
-    "Planes, precios y CUPO REAL de La Julita. Pásale SIEMPRE el `segmento` (pareja, familia, amigas, solo o pasadia) en cuanto lo sepas, y la `fecha` si la tienes. Sin `nivel` devuelve el MENÚ DE TRES EXPERIENCIAS (planes por noche / intermedios / todo incluido) con su precio 'desde' — es lo primero que se le muestra al cliente. Cuando el cliente elige una, llámala otra vez con `nivel` y devuelve hasta 3 planes concretos de ese nivel, YA con el cupo real de esa fecha (consulta el motor de reservas en línea). Con `plan` devuelve el detalle completo de uno, también con el cupo si hay `fecha`. Pásale siempre `personas` y, si la sabes, `fecha` (así cotiza un solo precio, el de ese día, Y te dice si hay cupo). GRUPOS: si son más de 4 personas (o más de 3 adultos), pásale `personas`, `adultos`, `ninos` y la `fecha`: arma la reserva en VARIOS domos (familiares primero, parejas después) con el total ya sumado — ese mensaje sale tal cual, no lo recalcules. Los precios y lo que incluye cada plan salen SIEMPRE de acá, nunca de tu memoria — y lo mismo la disponibilidad: si la respuesta no trae un dato de cupo explícito, no inventes uno.",
+    "Planes, precios y CUPO REAL de La Julita. NO la llames si el cliente todavía no te dijo NI la fecha NI cuántas personas son (un 'precios' o un 'info' en seco): para ese caso está `presentar_glamping`, y mandarle igual el menú de experiencias es justo lo que el equipo de ventas pidió dejar de hacer. Pásale SIEMPRE el `segmento` (pareja, familia, amigas, solo o pasadia) en cuanto lo sepas, y la `fecha` si la tienes. Sin `nivel` devuelve el MENÚ DE TRES EXPERIENCIAS (planes por noche / intermedios / todo incluido) con su precio 'desde' — es lo primero que se le muestra al cliente una vez que ya sabes para quién o para cuándo es. Cuando el cliente elige una, llámala otra vez con `nivel` y devuelve hasta 3 planes concretos de ese nivel, YA con el cupo real de esa fecha (consulta el motor de reservas en línea). Con `plan` devuelve el detalle completo de uno, también con el cupo si hay `fecha`. Pásale siempre `personas` y, si la sabes, `fecha` (así cotiza un solo precio, el de ese día, Y te dice si hay cupo). GRUPOS: si son más de 4 personas (o más de 3 adultos), pásale `personas`, `adultos`, `ninos` y la `fecha`: arma la reserva en VARIOS domos (familiares primero, parejas después) con el total ya sumado — ese mensaje sale tal cual, no lo recalcules. Los precios y lo que incluye cada plan salen SIEMPRE de acá, nunca de tu memoria — y lo mismo la disponibilidad: si la respuesta no trae un dato de cupo explícito, no inventes uno.",
   parameters: {
     type: "object",
     properties: {

@@ -92,11 +92,19 @@ export function parseYcloudWebhook(rawBody: Buffer, signatureHeader: string | un
     const type = (wim.type ?? wim.messageType) as string | undefined;
     const timestamp = String(wim.timestamp ?? wim.sentAt ?? new Date().toISOString());
 
+    // [2026-09-17] El id del mensaje (el `wamid` de WhatsApp). Se leen varios nombres porque
+    // YCloud no siempre usa el mismo según de dónde venga el evento, y el del envoltorio (`e.id`)
+    // queda de último: identifica la ENTREGA del webhook, no el mensaje, así que dos entregas del
+    // mismo mensaje podrían traer envoltorios distintos. Sirve para descartar una entrega
+    // repetida — ver InboundEvent.messageId en src/channels/types.ts.
+    const messageId = (wim.wamid ?? wim.id ?? wim.messageId ?? wim.message_id ?? e.id) as string | undefined;
+
     if (type === "text" || (wim.text && !type)) {
       const text = (wim.text as Record<string, unknown> | undefined)?.body ?? wim.body;
       result.push({
         channel: "whatsapp",
         externalId,
+        messageId,
         text: typeof text === "string" ? text : "",
         timestamp,
         raw: ev,
@@ -112,6 +120,7 @@ export function parseYcloudWebhook(rawBody: Buffer, signatureHeader: string | un
       result.push({
         channel: "whatsapp",
         externalId,
+        messageId,
         mediaType: "audio",
         mediaId,
         mediaLink,
@@ -128,6 +137,7 @@ export function parseYcloudWebhook(rawBody: Buffer, signatureHeader: string | un
       result.push({
         channel: "whatsapp",
         externalId,
+        messageId,
         mediaType: "image",
         timestamp,
         raw: ev,

@@ -1,5 +1,11 @@
 import { leerPromptDeAgente, type DefinicionAgente } from "../_tipos.js";
 import { consultarPlanesTool, consultarAdicionalesTool } from "./herramientas/planes.js";
+// [2026-09-17] Para cuando el cliente pregunta por VARIAS fechas o planes en el mismo mensaje:
+// un resumen de una línea por fecha en vez de cotizar todo de golpe (ver herramientas/resumenOpciones.ts).
+import { resumirOpcionesTool } from "./herramientas/resumenOpciones.js";
+// [2026-09-17] La respuesta a "solo quiero precios": presenta el glamping y pide fecha y
+// personas, en vez de tirar tres cifras sueltas (ver herramientas/presentacion.ts).
+import { presentarGlampingTool } from "./herramientas/presentacion.js";
 import { consultarFechasAlternativasTool } from "./herramientas/disponibilidad.js";
 import { registrarDatosReservaTool } from "./herramientas/reserva.js";
 import { preguntarFormaDePagoTool, enviarDatosPagoTool, verificarPagoTool } from "./herramientas/pago.js";
@@ -45,7 +51,9 @@ export const agente: DefinicionAgente = {
   atiende: ["informacion"],
   prompt: leerPromptDeAgente("ventas"),
   herramientas: [
+    presentarGlampingTool,
     consultarPlanesTool,
+    resumirOpcionesTool,
     consultarAdicionalesTool,
     consultarRecargosTool,
     consultarFechasAlternativasTool,

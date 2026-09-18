@@ -20,7 +20,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ||= "prueba";
 process.env.OPENROUTER_API_KEY ||= "prueba";
 
 import type { Guion } from "./fakes.js";
-import { PRECIO_REAL_ENTRE_SEMANA, PRECIO_VIEJO_EN_DESCRIPCION } from "./datos-reales.js";
+import { PRECIO_REAL_ENTRE_SEMANA, PRECIO_REAL_ENTRE_SEMANA_TEXTO, PRECIO_VIEJO_EN_DESCRIPCION } from "./datos-reales.js";
 
 // [2026-09-11] OJO: esto tiene que ser un import DINÁMICO, no uno estático de los de arriba.
 // En ESM los imports estáticos se resuelven ANTES que cualquier statement del propio archivo,
@@ -77,13 +77,13 @@ const TEXTO_CON_PRECIO_VIEJO =
 
 const TEXTO_CON_PRECIO_BUENO =
   `¡Confirmado! 💚 Para el **15 de septiembre** (martes, entre semana) el *${PLAN}* **sí tiene cupo** ✅\n\n` +
-  `💰 Valor entre semana: **$ 1.000** para 3 personas, sin IVA\n\n¿Dejamos registrada la reserva?`;
+  `💰 Valor entre semana: **${PRECIO_REAL_ENTRE_SEMANA_TEXTO}** para 3 personas, sin IVA\n\n¿Dejamos registrada la reserva?`;
 
 const TEXTO_CON_PRECIO_INVENTADO =
   `¡Confirmado! Para el 15 de septiembre el ${PLAN} queda en **$ 2.500.000** para 3 personas, sin IVA.`;
 
 const TEXTO_CON_RECARGO_VIEJO =
-  `El ${PLAN} entre semana vale **$ 1.000**, y los niños mayores de 3 años pagan **$ 50.000** adicionales.`;
+  `El ${PLAN} entre semana vale **${PRECIO_REAL_ENTRE_SEMANA_TEXTO}**, y los niños mayores de 3 años pagan **$ 50.000** adicionales.`;
 
 interface Caso {
   nombre: string;
@@ -160,8 +160,8 @@ const CASOS: Caso[] = [
     },
   },
   {
-    nombre: "F. Usa los recargos de niños que están pegados en la descripción",
-    detalle: "$50.000 por niño está escrito a mano en la descripción y no existe como dato real.",
+    nombre: "F. Agrega un recargo de niños que ninguna herramienta devolvió",
+    detalle: "$50.000 por niño vive en la tabla `recargos`; este turno solo llamó consultar_planes, así que esa cifra no está verificada.",
     prohibidos: ["50000"],
     guion: (_l, hop) => {
       if (hop === 1) return { herramienta: "consultar_planes", args: { plan: PLAN, fecha: FECHA, personas: 3, segmento: "familia" } };
@@ -176,7 +176,7 @@ async function main() {
   console.log("█".repeat(92));
   console.log(`  Plan probado           : ${PLAN}`);
   console.log(`  Precio REAL en la base : $${PRECIO_REAL_ENTRE_SEMANA} (entre semana)`);
-  console.log(`  Precio VIEJO pegado en la descripción: $${PRECIO_VIEJO_EN_DESCRIPCION} <- no puede salir nunca`);
+  console.log(`  Precio VIEJO que el bot ya dijo en esta charla: $${PRECIO_VIEJO_EN_DESCRIPCION} <- no puede salir nunca`);
   console.log(`  Historial de la charla : ya trae al bot diciendo "$ 590.000" 3 veces (igual que en WhatsApp)`);
 
   let fallos = 0;
@@ -226,15 +226,23 @@ async function main() {
     if (!ok) fallos++;
   }
 
-  // Comprobación extra: que la descripción cruda de la base SÍ tiene el precio viejo — o sea,
-  // que esta prueba está atacando un dato realmente envenenado y no uno ya limpio.
+  // [2026-09-17] Comprobación de que la prueba sigue midiendo algo. Antes verificaba lo
+  // CONTRARIO: que la descripción de la base trajera el precio viejo, porque el arreglo de
+  // entonces era un filtro que lo borraba al vuelo. Ese filtro ya no existe — la descripción se
+  // migró al token `$$$$` y la regla nueva es que el bot muestra lo que diga la base. Así que
+  // ahora lo que hay que confirmar es que la descripción quedó LIMPIA: si volviera a traer un
+  // precio escrito a mano, esa cifra sería legítima para el pipeline y los casos B, C y F
+  // pasarían sin probar nada.
   simularBaseCaida(false);
   const crudo = filasDe("planes").find((p) => p.id === 30)?.descripcion ?? "";
-  const envenenado = montosEn(crudo).includes(PRECIO_VIEJO_EN_DESCRIPCION);
+  const limpia = !montosEn(crudo).includes(PRECIO_VIEJO_EN_DESCRIPCION) && crudo.includes("$$$$");
 
   console.log("\n" + "█".repeat(92));
-  console.log(`  La descripción en la base SÍ trae el precio viejo: ${envenenado ? "sí (la prueba es válida)" : "NO — la prueba no probaría nada"}`);
-  if (fallos === 0 && envenenado) {
+  console.log(
+    `  La descripción de la base está migrada a $$$$ y sin precios a mano: ` +
+      `${limpia ? "sí (la prueba es válida)" : "NO — la prueba no probaría nada"}`
+  );
+  if (fallos === 0 && limpia) {
     console.log(`  RESULTADO: ✅ ${CASOS.length}/${CASOS.length} casos pasaron. Ningún precio fuera de la base llegó al cliente.`);
   } else {
     console.log(`  RESULTADO: ❌ ${fallos} de ${CASOS.length} casos fallaron.`);

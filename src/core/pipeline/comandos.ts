@@ -10,6 +10,10 @@ import { crearReservaRealDesdeBloqueo } from "./reservaLobby.js";
 // (sql/users-bot-corrige.sql); el .env queda como respaldo.
 import { abrirTicketReportado, abrirTicketEnsenanza } from "../db/ticketsRepo.js";
 import { permisosDeNumero } from "../db/usuariosPanelRepo.js";
+// [2026-09-17] /reset — dejar el propio número como cliente nuevo para volver a probar.
+import { borrarConversacion, totalDe } from "../db/resetRepo.js";
+import { drainInboundBuffer } from "../queue/inboundQueue.js";
+import { cancelarRecontacto } from "../queue/recontactoQueue.js";
 
 /**
  * Comandos del equipo por el mismo WhatsApp del bot: sirven para enseñarle cosas en caliente
@@ -43,6 +47,7 @@ const COMANDOS_LOGIN = ["/soy", "/login"];
 const COMANDOS_SALIR = ["/salir", "/logout"];
 const COMANDOS_CONFIRMAR = ["/confirmar", "/confirmo"];
 const COMANDOS_RESUELTO = ["/resuelto", "/reanudar"];
+const COMANDOS_RESET = ["/reset", "/reiniciar"];
 
 const MAX_INTENTOS = 5;
 const BLOQUEO_MS = 15 * 60 * 1000;
@@ -123,6 +128,13 @@ export interface ResultadoComando {
   respuesta?: string;
   /** Qué escribir en los logs. Nunca incluye claves. */
   etiquetaParaLog?: string;
+  /**
+   * [2026-09-17] /reset: además de lo que se borró en la base, runTurn.ts tiene que olvidar sus
+   * cachés en memoria de esta conversación (`historyByUser`, `ultimosArgsDePlanes`). Se pide así,
+   * con una bandera, y no importando runTurn desde acá, porque runTurn YA importa este archivo:
+   * los Maps son suyos y él es quien los limpia.
+   */
+  olvidarMemoria?: boolean;
 }
 
 /**
@@ -166,10 +178,73 @@ async function puedeReportar(canal: string, externalId: string): Promise<string 
 export type MedioDeMensaje = "texto" | "audio";
 
 /**
+ * [2026-09-17] Formas de empezar un reporte de falla. Antes solo valía "corrige" exacto, y se
+ * perdían en silencio los reportes escritos como "corrígelo" (con tilde), "corregir" o con los
+ * errores de tipeo de siempre — y sobre todo los AUDIOS, porque la transcripción devuelve la
+ * palabra bien acentuada ("corrígeme que...") y así nunca coincidía.
+ *
+ * Todas son del verbo corregir a propósito: son órdenes, no algo que alguien escriba de paso.
+ * Para sumar otra, agregala acá; el orden no importa (el `\b` del patrón impide que "corrige"
+ * se coma el principio de "corrígelo").
+ */
+const VERBOS_REPORTE = [
+  "corrige",
+  "corrigeme",
+  "corrigelo",
+  "corrigela",
+  "corrigan",
+  "corriganlo",
+  "corriganla",
+  "corriganme",
+  "corrijan",
+  "corrijanlo",
+  "corrijanla",
+  "corrijanme",
+  "corrija",
+  "corrijame",
+  "corrijalo",
+  "corrijala",
+  "corregir",
+  "corregime",
+  "corregilo",
+  "corregi",
+  // Errores de tipeo y transcripciones imperfectas que se ven seguido:
+  "corrije",
+  "correge",
+  "corrigue",
+  "corrigir",
+];
+
+/**
+ * Quita las tildes reemplazando carácter por carácter. Se hace así, y NO con `normalize("NFD")`,
+ * porque la descomposición cambia el largo del texto: acá el resultado tiene que medir
+ * exactamente lo mismo que el original para poder cortar el detalle del reporte con el índice
+ * que devuelve el patrón (ver `intentarReporteDeFalla`).
+ */
+function sinTildes(texto: string): string {
+  return texto
+    .replace(/[áàäâã]/g, "a")
+    .replace(/[ÁÀÄÂÃ]/g, "A")
+    .replace(/[éèëê]/g, "e")
+    .replace(/[ÉÈËÊ]/g, "E")
+    .replace(/[íìïî]/g, "i")
+    .replace(/[ÍÌÏÎ]/g, "I")
+    .replace(/[óòöô]/g, "o")
+    .replace(/[ÓÒÖÔ]/g, "O")
+    .replace(/[úùüû]/g, "u")
+    .replace(/[ÚÙÜÛ]/g, "U");
+}
+
+/** Signos con los que suele venir pegada la palabra, sobre todo en la transcripción de un audio. */
+const RE_REPORTE = new RegExp(`^(?:${VERBOS_REPORTE.join("|")})\\b[\\s:,.\\-–—¡!¿?]*`, "i");
+
+/**
  * [2026-09-17] REPORTES DE FALLAS: un texto o un audio (ya transcrito en runTurn.ts) que empiece
- * con la palabra "corrige" — SIN barra: "/corrige" es enseñar una regla, "corrige ..." es contar
- * algo que salió mal — se guarda tal cual como un ticket abierto en la tabla `tickets` del
- * panel, con quién lo reportó y por qué medio llegó. No se deduplica (ver abrirTicketReportado).
+ * con la palabra "corrige" o alguna de sus variantes (con tilde, en infinitivo o con los errores
+ * de tipeo de siempre — ver VERBOS_REPORTE) — SIN barra: "/corrige" es enseñar una regla,
+ * "corrige ..." es contar algo que salió mal — se guarda tal cual como un ticket abierto en la
+ * tabla `tickets` del panel, con quién lo reportó y por qué medio llegó. No se deduplica (ver
+ * abrirTicketReportado).
  *
  * Si el número no está autorizado, NO se contesta nada especial: se devuelve `manejado: false`
  * y el mensaje sigue como consulta normal de cliente (un cliente bien puede escribir "corrige
@@ -182,8 +257,10 @@ export async function intentarReporteDeFalla(
   medio: MedioDeMensaje = "texto"
 ): Promise<ResultadoComando> {
   const limpio = (texto ?? "").trim();
-  // "Corrige", "corrige:", "Corrige, ..." — la transcripción del audio suele meter puntuación.
-  const m = /^corrige\b[\s:,.\-–—]*/i.exec(limpio);
+  // "Corrige", "corrige:", "Corrige, ...", "Corrígelo", "corregir" — la transcripción del audio
+  // mete tildes y puntuación, así que se busca sobre el texto sin tildes (ver sinTildes: mide
+  // igual que el original) y el detalle se corta del original, que es el que se guarda.
+  const m = RE_REPORTE.exec(sinTildes(limpio));
   if (!m) return { manejado: false };
 
   const quien = await puedeReportar(canal, externalId);
@@ -349,6 +426,7 @@ export async function intentarComando(
     ...COMANDOS_SALIR,
     ...COMANDOS_CONFIRMAR,
     ...COMANDOS_RESUELTO,
+    ...COMANDOS_RESET,
   ].includes(comando);
   if (!conocido) return { manejado: false };
 
@@ -405,6 +483,7 @@ export async function intentarComando(
         "/borra <número> — desactivo esa corrección.\n" +
         "/confirmar <número del cliente> — verificaste el pago: cancelo el bloqueo de 10 min, no le mando el aviso de liberación y creo la reserva real en LobbyPMS.\n" +
         "/resuelto <número del cliente> — ya atendiste el caso escalado: el bot vuelve a responderle normal desde su próximo mensaje.\n" +
+        "/reset — borro TODO lo que tengo de tu número (historial, tus datos, reservas y pagos) para que pruebes desde ceros. Te muestro qué se va a borrar y borro recién con /reset confirmar.\n" +
         "/salir — cierro la sesión en este número.\n\n" +
         "Ejemplo: /corrige nunca digas cabañas, decí domos.",
     };
@@ -489,6 +568,76 @@ export async function intentarComando(
       respuesta: ok
         ? `Listo ✅ El bot vuelve a atender a ese cliente normal desde su próximo mensaje.`
         : "No pude actualizarlo — el detalle quedó en los logs del worker.",
+    };
+  }
+
+  /**
+   * [2026-09-17] /reset — dejar ESTE número como si nunca hubiera escrito, para poder probar el
+   * bot una y otra vez desde el mismo teléfono (pedido de Daniel). Borra el historial, el estado
+   * de la conversación, los bloqueos de cupo y también el cliente con sus reservas, pagos y
+   * acompañantes: si la fila de `clientes` sobrevive, el bot te vuelve a saludar por tu nombre y
+   * la prueba no arranca limpia.
+   *
+   * [2026-09-17, mismo día] Borra DE UNA. La primera versión iba en dos pasos (`/reset` mostraba
+   * la lista de lo que había y esperaba un `/reset confirmar`), copiando el molde de
+   * sql/limpiar-pruebas-numero.sql. Daniel lo sacó al usarlo: el comando existe para probar el
+   * bot muchas veces seguidas desde el mismo teléfono, y en ese uso la confirmación no protege
+   * de nada — solo duplica los mensajes en cada vuelta. El riesgo real ya está acotado por el
+   * alcance del comando, no por la confirmación: actúa SIEMPRE sobre el número de quien escribe
+   * y no acepta un número ajeno, así que no existe la forma de borrarle los datos a un cliente
+   * de verdad con un toque mal dado.
+   *
+   * Tampoco se muestra el resumen de lo borrado, por el mismo pedido. Lo que sí queda es la
+   * cuenta en el log del worker, para poder revisar después qué se llevó cada reset.
+   */
+  if (COMANDOS_RESET.includes(comando)) {
+    const { borrado, errores } = await borrarConversacion(canal, externalId);
+    // El buffer de Redis puede tener mensajes de esta conversación esperando el debounce: si no
+    // se vacía, el bot los procesaría después del reset como si fueran de la charla vieja.
+    //
+    // Con límite de tiempo a propósito: la conexión compartida usa `maxRetriesPerRequest: null`
+    // (lo exige BullMQ, ver core/queue/redis.ts), así que un comando lanzado con Redis caído NO
+    // falla — espera para siempre. Sin este tope, un /reset con Redis abajo borraría todo y
+    // después se colgaría sin contestarle nada a quien lo pidió. Vaciar el buffer es lo menos
+    // importante de todo el reset, así que si no se puede en 3 segundos, se sigue igual.
+    //
+    // [2026-09-17] El recontacto pendiente se cancela por la misma razón, y es el que de verdad
+    // se hizo notar: Daniel hizo /reset a las 4:07 y un minuto después le llegó "¡Hola! ¿Cómo
+    // estás? ¿Te cuento los planes...?" sin haber escrito nada. Era el paso 1 de la cadena de
+    // recontactos, programado 20 minutos antes por la charla vieja. Sobrevivía al reset porque
+    // vive en Redis y no en la base, y su chequeo de "¿el cliente ya contestó?" mira el
+    // historial — que el reset acababa de dejar vacío, o sea que daba que no. Encima ese mensaje
+    // quedaba siendo el PRIMERO de la conversación nueva, saltándose el saludo oficial con el
+    // aviso de la política de datos.
+    try {
+      await Promise.race([
+        Promise.all([drainInboundBuffer(canal, externalId), cancelarRecontacto(canal, externalId)]),
+        new Promise((_, rechazar) => setTimeout(() => rechazar(new Error("Redis no respondió en 3s")), 3000)),
+      ]);
+    } catch (e) {
+      console.error("[comandos] /reset limpiando lo que vive en Redis:", e instanceof Error ? e.message : e);
+    }
+
+    // Un fallo parcial SÍ se avisa: no es el resumen que Daniel pidió sacar, es la diferencia
+    // entre creer que arrancás de cero y arrancar con datos viejos que van a ensuciar la prueba.
+    if (errores.length > 0) {
+      return {
+        manejado: true,
+        // La memoria se limpia igual: en la base ya se borró parte, seguir recordando la charla
+        // vieja sería lo peor de los dos mundos.
+        olvidarMemoria: true,
+        etiquetaParaLog: `/reset PARCIAL por ${quien}: ${errores.join(" | ")}`,
+        respuesta:
+          `⚠️ Borré parte, pero no pude con: ${errores.join(", ")}.\n\n` +
+          "El detalle está en los logs del worker. Para terminar de limpiarlo está `sql/limpiar-pruebas-numero.sql`.",
+      };
+    }
+
+    return {
+      manejado: true,
+      olvidarMemoria: true,
+      etiquetaParaLog: `/reset OK por ${quien} (${totalDe(borrado)} filas)`,
+      respuesta: "Listo ✅ Borré todo lo de este número. Desde tu próximo mensaje te atiendo como un cliente nuevo.",
     };
   }
 

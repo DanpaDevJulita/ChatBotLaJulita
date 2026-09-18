@@ -2,6 +2,10 @@ import { leerPromptDeAgente, type DefinicionAgente } from "../_tipos.js";
 // Herramientas de otros bots que reservas reutiliza. Viven en la carpeta de su bot dueño y NO se
 // duplican acá — misma convención que ya usa postventa (ver src/agentes/postventa/agente.ts).
 import { consultarPlanesTool } from "../ventas/herramientas/planes.js";
+// [2026-09-17] También acá: a mitad de cotizar, el cliente suele preguntar "¿y el finde
+// siguiente?" junto con la fecha que ya venía mirando. Sin esta herramienta, reservas le
+// contestaría las dos con el menú completo de cada una (ver el porqué en resumenOpciones.ts).
+import { resumirOpcionesTool } from "../ventas/herramientas/resumenOpciones.js";
 import { consultarFechasAlternativasTool } from "../ventas/herramientas/disponibilidad.js";
 import { registrarDatosReservaTool } from "../ventas/herramientas/reserva.js";
 import { consultarPoliticasTool } from "../ventas/herramientas/politicas.js";
@@ -34,6 +38,7 @@ export const agente: DefinicionAgente = {
   prompt: leerPromptDeAgente("reservas"),
   herramientas: [
     consultarPlanesTool,
+    resumirOpcionesTool,
     consultarFechasAlternativasTool,
     consultarClienteConocidoTool,
     registrarDatosReservaTool,
