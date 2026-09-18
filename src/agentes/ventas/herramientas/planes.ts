@@ -527,6 +527,43 @@ function segmentoPorPersonas(personas: number): Segmento | undefined {
   return undefined;
 }
 
+/**
+ * [2026-09-18] CUÁNTAS PERSONAS SABEMOS QUE SON, como mínimo — para no ofrecerle a un grupo un
+ * plan donde no cabe. Se usa el número que dijo el cliente y, si no lo dijo, el piso que impone
+ * el segmento: "pareja" son dos, "va solo" es uno, y tanto "familia" como "amigas" son tres o
+ * más (por eso 3, que es el mínimo, no una suposición del total).
+ *
+ * Devuelve 0 cuando todavía no se sabe nada — ahí no se filtra por capacidad, porque descartar
+ * planes por un dato que nadie dio sería peor que mostrarlos.
+ *
+ * Ojo con el contraste con `segmentoPorPersonas`: aquella asume "pareja" cuando no hay dato
+ * (para que el "desde" del menú no salga con el precio del plan de una persona). Acá NO se puede
+ * asumir eso: asumir dos personas escondería planes de una persona a alguien que quizás sí viaja
+ * solo y todavía no lo dijo.
+ */
+function minimoDePersonas(args: { personas?: number; segmento?: string; adultos?: number; ninos?: number }): number {
+  const dichas = Number(args?.personas) || 0;
+  if (dichas > 0) return dichas;
+  const reparto = (Number(args?.adultos) || 0) + (Number(args?.ninos) || 0);
+  if (reparto > 0) return reparto;
+  switch (args?.segmento) {
+    case "solo":
+      return 1;
+    case "pareja":
+      return 2;
+    case "familia":
+    case "amigas":
+      return 3;
+    default:
+      return 0;
+  }
+}
+
+/** El precio con el que se ordenan las alternativas: el de la fecha si la hay, si no el más bajo. */
+function precioDeOrden(p: Plan, tarifa: Tarifa | null): number | null {
+  return (tarifa ? precioPara(p, tarifa) : null) ?? precioReferencia(p);
+}
+
 export function segmentoDePlan(p: Plan): Segmento {
   const nombre = sinTildes(p.nombre ?? "");
   if (/pasadia/.test(nombre)) return "pasadia";
@@ -829,7 +866,89 @@ export const consultarPlanesTool: ToolDefinition = {
     }
 
     if (buscado) {
-      const coincidencias = planes.filter((p) => sinTildes(limpiar(p.nombre)).includes(buscado));
+      const porNombre = planes.filter((p) => sinTildes(limpiar(p.nombre)).includes(buscado));
+
+      // [2026-09-18] EL GRUPO MANDA POR ENCIMA DEL NOMBRE.
+      //
+      // El caso real (Daniel, 18/09): el cliente dijo "para hoy, dos personas", el bot le listó
+      // fechas libres nombrando los domos ("Domo Deluxe, Domo Familiar...") y el cliente preguntó
+      // "¿cuál es el domo deluxe?". El modelo lo pasó como `plan: "domo deluxe"`, y el único plan
+      // con esa palabra en el nombre es PLAN UNA PERSONA UNA NOCHE DOMO DELUXE — así que a una
+      // pareja le llegó, con precio y video, un plan donde no caben los dos.
+      //
+      // La causa es que esta rama filtraba SOLO por nombre: `personas` y `segmento` ni se
+      // miraban, aunque el cliente ya los hubiera dicho. Ahora un plan al que el grupo no le cabe
+      // no se muestra como si fuera la respuesta; se le dice para cuántos es y se le ofrecen los
+      // que sí le sirven del mismo tipo de alojamiento, que es lo que estaba preguntando.
+      const grupo = minimoDePersonas(args ?? {});
+      const caben =
+        grupo > 0
+          ? porNombre.filter((p) => {
+              const cap = capacidadDePlan(p, cat);
+              return cap == null || cap >= grupo;
+            })
+          : porNombre;
+
+      if (grupo > 0 && porNombre.length > 0 && caben.length === 0) {
+        // Los planes que SÍ le sirven a este grupo. Se filtra por segmento (una pareja no quiere
+        // el plan familiar de 3 aunque le "quepan" los dos) y se ordena por precio, dejando
+        // adelante los del mismo tipo de alojamiento por el que preguntó.
+        //
+        // El tipo de alojamiento va como PREFERENCIA y no como filtro, y el texto no se lo
+        // promete al cliente: hoy en la base todos los planes apuntan al mismo domo
+        // (`planes.domos_id` está en [1] para los 20), así que `clasesDePlan` no distingue casi
+        // nada. Filtrar por algo que el dato no sostiene dejaría la lista vacía o mentiría.
+        const clasesBuscadas = new Set(porNombre.flatMap((p) => clasesDePlan(p, cat)));
+        const segmentoDelGrupo = (args?.segmento as Segmento | undefined) ?? segmentoPorPersonas(grupo);
+        const leSirven = planes.filter((p) => {
+          const cap = capacidadDePlan(p, cat);
+          if (cap != null && cap < grupo) return false;
+          if (tipoDePlan(p) === "pasadia" && args?.tipo !== "pasadia") return false;
+          if (tarifa && precioPara(p, tarifa) == null) return false;
+          return true;
+        });
+        const delSegmento = leSirven.filter((p) => segmentoDePlan(p) === segmentoDelGrupo);
+        const alternativas = (delSegmento.length > 0 ? delSegmento : leSirven)
+          .sort((a, b) => {
+            const mismaClase = (p: Plan) => (clasesDePlan(p, cat).some((c) => clasesBuscadas.has(c)) ? 0 : 1);
+            return (
+              mismaClase(a) - mismaClase(b) ||
+              (precioDeOrden(a, tarifa) ?? Infinity) - (precioDeOrden(b, tarifa) ?? Infinity)
+            );
+          })
+          .slice(0, PLANES_POR_TANDA);
+
+        const capacidades = [...new Set(porNombre.map((p) => capacidadDePlan(p, cat)).filter((c): c is number => c != null))];
+        const paraCuantos = capacidades.length === 1 ? `es solo para ${textoPersonas(capacidades[0])}` : "no alcanza para ustedes";
+        const queBuscaba = limpiar(args?.plan);
+
+        const lineas = alternativas.map((p) => {
+          const precio = tarifa ? precioPara(p, tarifa) : null;
+          const valor = precio != null ? `${formatMoney(precio)} ${ETIQUETA_TARIFA[tarifa as Tarifa]}` : preciosDe(p);
+          return `• ${limpiar(p.nombre)}: ${valor}`;
+        });
+
+        const apertura = `El plan que tengo con "${queBuscaba}" ${paraCuantos}, así que para ${textoPersonas(grupo)} no les sirve 🙈`;
+        const texto =
+          alternativas.length > 0
+            ? `${apertura}\n\nEstos sí:\n${lineas.join("\n")}\n\n¿Te cuento qué incluye alguno? 💚`
+            : `${apertura}\n\n¿Quieres que te muestre las opciones que sí tengo para ustedes?`;
+
+        return {
+          result: {
+            motivo: "el plan que coincide con el nombre no admite ese número de personas",
+            personas: grupo,
+            no_caben: porNombre.map((p) => ({ nombre: p.nombre, hasta: capacidadDePlan(p, cat) })),
+            alternativas,
+          },
+          reply_to_user: texto,
+          // Literal: cada línea casa un plan con su precio, y es justo el mensaje que tiene que
+          // dejar claro para cuántas personas es cada cosa.
+          forzarTextoLiteral: true,
+        };
+      }
+
+      const coincidencias = caben;
 
       if (coincidencias.length === 1) {
         const p = coincidencias[0];

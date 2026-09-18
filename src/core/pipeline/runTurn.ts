@@ -93,6 +93,40 @@ const historyByUser = new Map<string, any[]>();
  */
 const ultimosArgsDePlanes = new Map<string, Record<string, unknown>>();
 
+/**
+ * [2026-09-18] Los datos del GRUPO no se le vuelven a preguntar al cliente, ni se pierden porque
+ * el modelo no los repitió en una llamada.
+ *
+ * El caso real (Daniel, 18/09): el cliente escribió "para hoy, dos personas", el bot cotizó bien
+ * para dos, y tres mensajes después le preguntó "¿cuál es el domo deluxe?". En ESA llamada el
+ * modelo mandó solo `plan: "domo deluxe"` — sin `personas` — así que la herramienta buscó por
+ * nombre sin saber para cuántos era y le mostró a la pareja un plan de UNA persona.
+ *
+ * Que el modelo repita los argumentos en cada llamada es justo lo que no se le puede garantizar,
+ * y el prompt ya se lo pide desde hace semanas. Así que el pipeline lo completa: si no los pasó,
+ * se rellenan con los de la última consulta que sí funcionó en esta conversación. Lo que el
+ * modelo SÍ manda nunca se pisa — si el cliente cambia de grupo, ese dato nuevo manda.
+ *
+ * Solo el grupo: la `fecha`, el `plan` o el `nivel` cambian a cada rato dentro de una misma
+ * charla, y arrastrarlos sería contestar sobre algo que el cliente ya no está preguntando.
+ */
+const CAMPOS_DE_GRUPO = ["personas", "segmento", "adultos", "ninos"] as const;
+
+function completarGrupoDeLaConversacion(key: string, args: Record<string, unknown>): void {
+  const previos = ultimosArgsDePlanes.get(key);
+  if (!previos) return;
+  const heredados: string[] = [];
+  for (const campo of CAMPOS_DE_GRUPO) {
+    if (args[campo] == null && previos[campo] != null) {
+      args[campo] = previos[campo];
+      heredados.push(`${campo}=${JSON.stringify(previos[campo])}`);
+    }
+  }
+  if (heredados.length > 0) {
+    console.log(`[runTurn] ${key}: el modelo no repitió el grupo, lo completo con ${heredados.join(", ")}.`);
+  }
+}
+
 const MAX_HOPS = 4;
 const FALLBACK_REPLY = "Perdón, no pude procesar eso. ¿Puedes repetirlo?";
 
@@ -510,6 +544,9 @@ export async function handleInbound(event: InboundEvent, adapter: ChannelAdapter
         try {
           const handler = handlerDeHerramienta(call.function.name, agente.herramientas);
           const args = JSON.parse(call.function.arguments || "{}");
+          // Antes de llamar: si es una consulta de planes y el modelo no repitió para cuántas
+          // personas es, se completa con lo que el cliente ya dijo (ver más arriba).
+          if (call.function.name === "consultar_planes") completarGrupoDeLaConversacion(key, args);
           // [2026-09-11] Diagnóstico temporal: para investigar un precio viejo que seguía
           // saliendo incluso DESPUÉS de forzar la llamada a consultar_planes, hace falta ver
           // con qué argumentos la llamó el modelo (¿le pasó el `plan` y la `fecha` correctos, o

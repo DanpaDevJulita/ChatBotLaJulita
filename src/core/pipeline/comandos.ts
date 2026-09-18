@@ -216,6 +216,35 @@ const VERBOS_REPORTE = [
 ];
 
 /**
+ * [2026-09-18] Formas de EMPEZAR una enseñanza sin barra: "aprende: ...", "aprendé que ...",
+ * "aprender ...". Hasta hoy solo valía "/aprende" con barra, y eso le costó caro a Daniel: le
+ * escribió al bot «aprende: por que le ofreces plan para una persona si en el chat el te pidio
+ * plan para dos ? revisa y corrige.» y el bot, que no reconoció ninguna orden, lo trató como un
+ * cliente cualquiera. El orquestador leyó un reclamo por un error del bot —que es justo lo que
+ * era— lo mandó a `humano`, escaló la conversación y le contestó "Ya te comunico con el equipo de
+ * La Julita". O sea: el dueño del bot le enseñó algo y el bot lo puso en la cola de soporte.
+ *
+ * Son solo del verbo aprender, igual que VERBOS_REPORTE es solo del verbo corregir: tienen que
+ * ser órdenes inequívocas, no algo que alguien escriba de paso.
+ */
+const VERBOS_ENSENANZA = [
+  "aprende",
+  "aprendelo",
+  "aprendela",
+  "aprendete",
+  "aprendeme",
+  "aprender",
+  "aprendan",
+  "aprendanlo",
+  "aprendanla",
+  "aprenda",
+  "aprendalo",
+  "aprendase",
+  "aprendi",
+  "aprendiendo",
+];
+
+/**
  * Quita las tildes reemplazando carácter por carácter. Se hace así, y NO con `normalize("NFD")`,
  * porque la descomposición cambia el largo del texto: acá el resultado tiene que medir
  * exactamente lo mismo que el original para poder cortar el detalle del reporte con el índice
@@ -237,6 +266,8 @@ function sinTildes(texto: string): string {
 
 /** Signos con los que suele venir pegada la palabra, sobre todo en la transcripción de un audio. */
 const RE_REPORTE = new RegExp(`^(?:${VERBOS_REPORTE.join("|")})\\b[\\s:,.\\-–—¡!¿?]*`, "i");
+/** Mismo molde que RE_REPORTE, para las enseñanzas sin barra ("aprende: ...", "aprendé que ..."). */
+const RE_ENSENANZA = new RegExp(`^(?:${VERBOS_ENSENANZA.join("|")})\\b[\\s:,.\\-–—¡!¿?]*`, "i");
 
 /**
  * [2026-09-17] REPORTES DE FALLAS: un texto o un audio (ya transcrito en runTurn.ts) que empiece
@@ -357,7 +388,7 @@ export async function intentarComando(
   /** [2026-09-17] Cómo llegó el mensaje — queda en el ticket cuando es un reporte de falla. */
   medio: MedioDeMensaje = "texto"
 ): Promise<ResultadoComando> {
-  const limpio = (texto ?? "").trim();
+  let limpio = (texto ?? "").trim();
   if (!limpio) return { manejado: false };
 
   const codigoSecreto = (process.env.TEAM_SECRET_CODE ?? "").trim();
@@ -406,9 +437,22 @@ export async function intentarComando(
     };
   }
 
-  // --- 3. Reporte de falla: "corrige ..." sin barra (ver intentarReporteDeFalla) ---
+  // --- 3. Órdenes SIN barra ---
+  //
+  // Dos familias, y la diferencia importa: "aprende ..." es ENSEÑARLE una regla (se guarda en
+  // `correcciones` y aplica con todos los clientes desde el mensaje siguiente), "corrige ..." es
+  // REPORTAR algo que salió mal (queda como ticket para el equipo técnico). Con barra las dos ya
+  // funcionaban; sin barra solo funcionaba la de reportes, y una enseñanza escrita sin barra
+  // terminaba tratada como el mensaje de un cliente molesto — ver VERBOS_ENSENANZA.
   if (!limpio.startsWith("/")) {
-    return await intentarReporteDeFalla(canal, externalId, limpio, medio);
+    const ensenanza = RE_ENSENANZA.exec(sinTildes(limpio));
+    if (ensenanza && (await puedeCorregir(canal, externalId))) {
+      // Se reescribe como el comando equivalente y sigue por el camino de siempre: así hay UNA
+      // sola implementación de "enseñar una regla", no dos que se puedan desincronizar.
+      limpio = `/corrige ${limpio.slice(ensenanza[0].length).trim()}`;
+    } else {
+      return await intentarReporteDeFalla(canal, externalId, limpio, medio);
+    }
   }
 
   // --- 4. Comandos con barra ---
