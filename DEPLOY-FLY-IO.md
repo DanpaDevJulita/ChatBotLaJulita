@@ -43,61 +43,50 @@ Esto crea `fly.toml` (ya existe en el repo, no sobrescribe).
 
 > **No uses el campo "Variables ambientales" del formulario web de Fly para los tokens.** Ahí
 > quedan como variables de entorno normales, legibles en la configuración de la app. Todo lo que
-> sea clave o token va por `fly secrets set`, que las guarda cifradas y solo las expone al
-> proceso en ejecución.
+> sea clave o token va por `fly secrets`, que las cifra y solo las expone al proceso corriendo.
+
+Hay un script que lee el `.env` local y lo sube entero, sin que los valores pasen por el
+historial de la terminal:
 
 ```bash
-flyctl secrets set \
-  REDIS_URL="tu-url-de-upstash" \
-  SUPABASE_URL="tu-url-supabase" \
-  SUPABASE_SERVICE_ROLE_KEY="tu-key" \
-  OPENROUTER_API_KEY="tu-key" \
-  OWNER_WHATSAPP_NUMBERS="tu-numero" \
-  PORT=8080
+bash scripts/subir-secretos-fly.sh botlajulita
 ```
 
-**Todas las variables requeridas:**
+Te muestra la lista de nombres que va a subir y pide confirmación antes de hacer nada.
 
+**Qué sube y qué no.** De las 33 variables del `.env` sube 29:
+
+- **Excluye `PORT`**: ya está declarado en `fly.toml` como 8080. Tenerlo en los dos lados es
+  pedir que un día no cuadren.
+- **Excluye las que están vacías.** Hoy son tres: `TEAM_SECRET_CODE`, `TEAM_LOGIN_USERS` y
+  `REPORTE_FALLAS_NUMBERS`. Subir una variable vacía es peor que no subirla, porque el código que
+  hace `?? valor_por_defecto` recibe una cadena vacía —que no es `null`— y se queda con ella.
+
+**Ojo con esas tres vacías:** `TEAM_SECRET_CODE` y `TEAM_LOGIN_USERS` son las que permiten
+identificarse desde cualquier número para usar `/corrige`, `/aprende` y `/reset`. Mientras estén
+vacías, esos comandos solo funcionan desde los números de `OWNER_WHATSAPP_NUMBERS`.
+
+**Verificar después:**
 ```bash
-flyctl secrets set \
-  PORT="8080" \
-  NODE_ENV="production" \
-  REDIS_URL="rediss://..." \
-  SUPABASE_URL="https://..." \
-  SUPABASE_SERVICE_ROLE_KEY="..." \
-  OPENROUTER_API_KEY="..." \
-  OPENROUTER_MODEL="deepseek/deepseek-chat" \
-  ORCHESTRATOR_MODEL="deepseek/deepseek-chat" \
-  YCLOUD_WHATSAPP_API_URL="https://..." \
-  YCLOUD_WHATSAPP_PHONE_ID="..." \
-  YCLOUD_WHATSAPP_TOKEN="..." \
-  YCLOUD_WHATSAPP_WEBHOOK_TOKEN="..." \
-  YCLOUD_WHATSAPP_WEBHOOK_VERIFY_TOKEN="..." \
-  BOLD_API_KEY="..." \
-  BOLD_BASE_URL="..." \
-  BOLD_SECRET_KEY="..." \
-  BOLD_WEBHOOK_SECRET="..." \
-  LOBBYPMS_API_URL="https://..." \
-  LOBBYPMS_API_TOKEN="..." \
-  LOBBYPMS_CHANNEL_ID="..." \
-  OWNER_WHATSAPP_NUMBERS="..." \
-  TEAM_LOGIN_USERS="usuario:clave" \
-  TEAM_SECRET_CODE="..." \
-  TEAM_SESSION_HOURS="4" \
-  REPORTE_FALLAS_NUMBERS="..." \
-  HISTORY_TURNS="5" \
-  LLM_TEMPERATURE="0.7"
+fly secrets list --app botlajulita
 ```
+Muestra los nombres y un hash de cada valor, nunca el valor.
 
-**Ver variables configuradas:**
+**Cambiar una sola variable más adelante:**
 ```bash
-flyctl secrets list
+fly secrets set OPENROUTER_API_KEY="..." --app botlajulita
 ```
+Cada `fly secrets set` reinicia las máquinas para que tomen el valor nuevo.
 
-**Ver una variable específica:**
-```bash
-flyctl secrets show REDIS_URL
-```
+---
+
+## Antes de mover los webhooks: dos banderas que ya están en `true`
+
+El `.env` trae `YCLOUD_DRY_RUN=false` y `CREAR_RESERVA_DESDE_BOT=true`. Es la configuración de
+producción y está bien, pero significa que **en cuanto YCloud apunte a Fly, el bot responde de
+verdad y crea reservas reales en LobbyPMS**. No hay un modo intermedio: si querés probar el
+despliegue sin que conteste a nadie, subí `YCLOUD_DRY_RUN=true` primero y cambialo cuando estés
+conforme.
 
 ---
 
