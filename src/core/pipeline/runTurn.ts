@@ -133,7 +133,7 @@ const ultimosArgsDePlanes = new Map<string, Record<string, unknown>>();
  * no darle al cliente el aviso legal. Si se cambia el oficial, hay que cambiar este también.
  */
 const SALUDO_RESPALDO =
-  "✨ ¡Hola! Soy Estefany de La Julita Glamping 🌿🏕️ Me encantaría ayudarte a elegir el plan perfecto.\n" +
+  "✨ ¡Hola! Somos La Julita Glamping 🌿🏕️ Me encantaría ayudarte a elegir el plan perfecto.\n" +
   "📌 Al continuar aceptas nuestra política de datos 👉 https://lajulitaglamping.com.co/politica-de-privacidad/\n" +
   "Cuéntame 👇 ¿vienen en pareja, en familia o con amigas? 📆 ¿y para qué fecha?";
 

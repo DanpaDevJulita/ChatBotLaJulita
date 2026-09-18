@@ -23,6 +23,9 @@
 -- El link va a la política EXACTA, no a la portada del sitio: el aviso promete una política que
 -- el cliente tiene que poder leer.
 --
+-- [2026-09-18] Dice "Somos La Julita Glamping", no "Soy Estefany": lo pidió Daniel. El bot habla
+-- como el glamping, no como una persona con nombre.
+--
 -- Se puede correr varias veces sin romper nada: es un UPSERT.
 -- ============================================================
 
@@ -30,7 +33,7 @@ INSERT INTO politicas (clave, titulo, contenido, activo) VALUES
 (
   'saludo_bienvenida',
   'Saludo de bienvenida (primer mensaje, con el aviso de datos)',
-  E'✨ ¡Hola! Soy Estefany de La Julita Glamping 🌿🏕️ Me encantaría ayudarte a elegir el plan perfecto.\n'
+  E'✨ ¡Hola! Somos La Julita Glamping 🌿🏕️ Me encantaría ayudarte a elegir el plan perfecto.\n'
   E'📌 Al continuar aceptas nuestra política de datos 👉 https://lajulitaglamping.com.co/politica-de-privacidad/\n'
   E'Cuéntame 👇 ¿vienen en pareja, en familia o con amigas? 📆 ¿y para qué fecha?',
   true

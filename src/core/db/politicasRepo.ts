@@ -34,6 +34,10 @@ export interface Politica {
  * mensaje (ver saludarSiEsElPrimerMensaje en core/pipeline/runTurn.ts), no el modelo, y vive acá
  * para que el equipo lo pueda cambiar desde el panel. Es la única clave con copia de respaldo en
  * el código: sin ella, una caída de la base dejaría al cliente sin el aviso legal.
+ *
+ * [2026-09-18] `pago_en_sitio` responde "¿puedo pagar allá cuando llegue?" (ticket #15). Sí se
+ * puede, pero con anticipación y nunca el mismo día — antes el bot no tenía esa respuesta y
+ * terminaba derivando al equipo, que fue justo lo que abrió el ticket #14.
  */
 export type ClavePolitica =
   | "terminos_reserva"
@@ -41,7 +45,8 @@ export type ClavePolitica =
   | "saldo_pendiente"
   | "cambios_corta"
   | "presentacion_general"
-  | "saludo_bienvenida";
+  | "saludo_bienvenida"
+  | "pago_en_sitio";
 
 // Mismo cache que faqRepo: el bot puede recibir varios mensajes seguidos y estos textos casi
 // nunca cambian. 30 segundos alcanza para que una edición del equipo se vea casi enseguida.

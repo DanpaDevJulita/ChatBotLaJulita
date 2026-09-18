@@ -377,9 +377,12 @@ function lineaDePlan(p: Plan, cat: CatalogoDomos): string {
 
 export type Tarifa = "entre_semana" | "fin_de_semana" | "fin_de_semana_puente";
 
+// [2026-09-18 — ticket #7] El viernes pasó a cobrarse como entre semana, así que las etiquetas
+// que lee el cliente cambian con él: si el mensaje dijera "de lunes a jueves" mientras le
+// cotizamos un viernes, el cliente vería un precio que su propia fecha contradice.
 export const ETIQUETA_TARIFA: Record<Tarifa, string> = {
-  entre_semana: "de lunes a jueves",
-  fin_de_semana: "de viernes a domingo",
+  entre_semana: "de lunes a viernes",
+  fin_de_semana: "sábado y domingo",
   fin_de_semana_puente: "en fin de semana de puente festivo",
 };
 
@@ -403,7 +406,19 @@ export function precioReferencia(p: Plan): number | null {
 }
 
 /**
- * Qué tarifa corresponde a una fecha AAAA-MM-DD. Viernes, sábado y domingo son fin de semana.
+ * Qué tarifa corresponde a una fecha AAAA-MM-DD.
+ *
+ * [2026-09-18 — ticket #7, reportado por Sebas en audio, aprobado por Daniel] **El viernes se
+ * cobra como entre semana**: "el precio de los viernes en todos los planes debería tener el mismo
+ * precio entre semana". Hasta hoy el viernes entraba en la tarifa de fin de semana, así que un
+ * PLAN BASICO salía en $ 690.000 en vez de $ 569.000. Fin de semana quedó siendo sábado y
+ * domingo.
+ *
+ * Ojo con la diferencia entre esto y `esFinDeSemana`: aquella sigue contando el viernes como
+ * parte del fin de semana, porque responde otra pregunta (cuándo se llena el glamping, para no
+ * ofrecerle esos días a una persona sola). Son dos conceptos distintos que antes compartían una
+ * sola función — la tarifa es un precio, el fin de semana es la ocupación.
+ *
  * El recargo de puente festivo NO se puede deducir de la fecha sola (haría falta el calendario
  * de festivos de Colombia), así que solo se aplica si el cliente aclara que es puente y el
  * modelo pasa `festivo: true`.
@@ -411,8 +426,12 @@ export function precioReferencia(p: Plan): number | null {
 export function tarifaDeFecha(fechaISO: string, festivo?: boolean): Tarifa | null {
   const d = fechaComoDate(fechaISO);
   if (!d) return null;
-  if (!esFinDeSemana(fechaISO)) return "entre_semana";
-  return festivo ? "fin_de_semana_puente" : "fin_de_semana";
+  // Un puente festivo se cobra como puente cualquier día de la semana que caiga, viernes
+  // incluido: el cliente lo aclaró expresamente y esos días el glamping se llena igual que un
+  // sábado. La regla del viernes es para un viernes normal.
+  if (festivo) return "fin_de_semana_puente";
+  const dia = d.getUTCDay(); // 0 domingo ... 6 sábado
+  return dia === 0 || dia === 6 ? "fin_de_semana" : "entre_semana";
 }
 
 function fechaComoDate(fechaISO: string): Date | null {
@@ -422,7 +441,13 @@ function fechaComoDate(fechaISO: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** Viernes, sábado o domingo. La usa también disponibilidad.ts para no ofrecerle fin de semana a una persona sola. */
+/**
+ * Viernes, sábado o domingo — los días de OCUPACIÓN alta. La usa disponibilidad.ts para no
+ * ofrecerle esos días a una persona sola.
+ *
+ * [2026-09-18] No confundir con la TARIFA: desde el ticket #7 el viernes se cobra como entre
+ * semana, pero sigue siendo un día en que el glamping se llena. Por eso esta función NO cambió.
+ */
 export function esFinDeSemana(fechaISO: string): boolean {
   const d = fechaComoDate(fechaISO);
   if (!d) return false;
@@ -656,22 +681,49 @@ function armarEscalera(
  * no reconocemos a qué categoría de LobbyPMS pertenece este plan) — con `undefined` el llamador
  * tiene que quedarse con el "le confirmo con el equipo" de siempre, nunca inventar un sí o un no.
  */
+/**
+ * [2026-09-18] Las clases de alojamiento que el plan NOMBRA — en su nombre o en su descripción
+ * ("PLAN UNA PERSONA UNA NOCHE DOMO DELUXE", "...DOMO CLASICO O CHALET", "si tomas el plan en el
+ * chalet tienes cinema privado"). Vacío = el plan no se casa con ningún tipo de domo.
+ *
+ * Se mira el TEXTO y no `planes.domos_id` a propósito: hoy los 20 planes tienen esa columna en
+ * `[1]`, o sea que apunta al mismo domo para todos y no distingue nada. El nombre, en cambio, lo
+ * escribe el equipo y sí dice la verdad cuando el plan va atado a un domo puntual.
+ */
+function clasesNombradasEn(p: Plan): string[] {
+  const texto = sinTildes(`${p.nombre ?? ""} ${p.descripcion ?? ""}`);
+  return CLASES_PREFERIDAS.filter((c) => texto.includes(c));
+}
+
 export function cupoParaPlan(
   p: Plan,
   cat: CatalogoDomos,
   disponibilidad: DisponibilidadCategoria[] | null
 ): boolean | undefined {
   if (!disponibilidad) return undefined;
-  const clases = clasesDePlan(p, cat);
-  if (clases.length === 0) return undefined;
   const capacidad = capacidadDePlan(p, cat) ?? 2;
+  const clasesDelPlan = clasesNombradasEn(p);
 
   const relevantes = disponibilidad.filter((d) => {
-    if (!clases.includes(d.clase)) return false;
-    if (d.clase !== "clasico") return true;
-    // "clasico" cubre dos categorías reales en LobbyPMS (romantic 2p / familiar 4p) — nos
-    // quedamos con la que le queda a la capacidad que pide este plan.
-    return capacidad <= 2 ? d.capacidad === 2 : d.capacidad === 4;
+    // [2026-09-18] Si el plan nombra un tipo de domo, manda eso. Si NO nombra ninguno, el plan se
+    // puede alojar en cualquier domo donde quepa el grupo — que es como funciona el negocio.
+    //
+    // Antes esto salía de `clasesDePlan`, que para los planes sin domo en el nombre devuelve lo
+    // que diga `planes.domos_id`… y esa columna está en `[1]` para los 20 planes, o sea "Clásico"
+    // para todos. Consecuencia real, reportada por Daniel el 18/09: un viernes con TODOS los
+    // Domos Deluxe libres, el bot no le ofreció ni un plan de pareja — los planes de pareja solo
+    // miraban el Domo Romantic (clásico de 2), que ese día estaba lleno, y el inventario Deluxe
+    // era invisible.
+    if (clasesDelPlan.length > 0 && !clasesDelPlan.includes(d.clase)) return false;
+    // La capacidad filtra en un solo sentido: el domo tiene que poder recibir al grupo. Que sea
+    // más grande de lo necesario NO lo descarta.
+    //
+    // [2026-09-18 — ticket #6, reportado por Sebas en audio] "Si una pareja pregunta por plan
+    // básico y solo está disponible el domo familiar, lo puedo ofrecer para esa pareja en plan
+    // básico." O sea: un domo de 4 libre sirve para dos personas, y dejar de vender esa noche
+    // por no ofrecerlo es perder plata. Antes, para un plan de hasta 2 personas se exigía
+    // `d.capacidad === 2` y el familiar libre quedaba fuera.
+    return d.capacidad >= capacidad;
   });
   if (relevantes.length === 0) return undefined;
   return relevantes.some((d) => d.disponibles > 0);

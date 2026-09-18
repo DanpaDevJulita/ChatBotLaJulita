@@ -242,7 +242,54 @@ const VERBOS_ENSENANZA = [
   "aprendase",
   "aprendi",
   "aprendiendo",
+  // Errores de tipeo reales (Daniel escribe rápido desde el teléfono). Igual no hace falta
+  // adivinarlos todos: lo que no esté acá lo agarra `seParecemA`, más abajo.
+  "apreder",
+  "aprede",
+  "aprnde",
 ];
+
+/**
+ * [2026-09-18] Distancia de edición (Levenshtein) entre dos palabras. Es chiquita a propósito:
+ * solo se usa para comparar UNA palabra contra dos listas cortas.
+ */
+function distancia(a: string, b: string): number {
+  const fila = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let anterior = fila[0];
+    fila[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const temp = fila[j];
+      fila[j] = Math.min(
+        fila[j] + 1, // borrar
+        fila[j - 1] + 1, // insertar
+        anterior + (a[i - 1] === b[j - 1] ? 0 : 1) // sustituir
+      );
+      anterior = temp;
+    }
+  }
+  return fila[b.length];
+}
+
+/**
+ * [2026-09-18] ¿La primera palabra del mensaje QUISO ser uno de estos verbos?
+ *
+ * Por qué existe: el 2026-09-17 Daniel le enseñó una regla al bot y el bot no la tomó; hoy
+ * volvió a intentarlo escribiendo "apreder: cambia ..." y tampoco. Las listas de verbos son
+ * exactas, así que una letra de menos convierte una orden del equipo en un mensaje de cliente
+ * cualquiera — y el bot contesta como si nada, que es lo peor: el equipo se queda creyendo que
+ * le enseñó algo.
+ *
+ * Se tolera una letra de diferencia (dos si la palabra es larga), y solo se consulta cuando la
+ * coincidencia exacta ya falló. El riesgo de un falso positivo es bajísimo: esto corre únicamente
+ * sobre la PRIMERA palabra del mensaje y solo para números autorizados del equipo.
+ */
+function seParecemA(palabra: string, verbos: string[]): boolean {
+  const p = palabra.toLowerCase().replace(/[^a-zñ]/g, "");
+  if (p.length < 5) return false;
+  const tolerancia = p.length >= 8 ? 2 : 1;
+  return verbos.some((v) => Math.abs(v.length - p.length) <= tolerancia && distancia(p, v) <= tolerancia);
+}
 
 /**
  * Quita las tildes reemplazando carácter por carácter. Se hace así, y NO con `normalize("NFD")`,
@@ -292,12 +339,19 @@ export async function intentarReporteDeFalla(
   // mete tildes y puntuación, así que se busca sobre el texto sin tildes (ver sinTildes: mide
   // igual que el original) y el detalle se corta del original, que es el que se guarda.
   const m = RE_REPORTE.exec(sinTildes(limpio));
-  if (!m) return { manejado: false };
+  // [2026-09-18] Igual que con las enseñanzas: si no coincidió exacto, se acepta que la primera
+  // palabra haya querido ser "corrige" ("corrije", "corrigr"...). Ver seParecemA.
+  const primeraPalabra = sinTildes(limpio).split(/[\s:,.\-–—¡!¿?]+/)[0] ?? "";
+  const pareceReporte = !m && seParecemA(primeraPalabra, VERBOS_REPORTE);
+  if (!m && !pareceReporte) return { manejado: false };
 
   const quien = await puedeReportar(canal, externalId);
   if (!quien) return { manejado: false };
 
-  const detalle = limpio.slice(m[0].length).trim();
+  const detalle = limpio
+    .slice(m ? m[0].length : primeraPalabra.length)
+    .replace(/^[\s:,.\-–—¡!¿?]+/, "")
+    .trim();
   if (detalle.length < 5) {
     return {
       manejado: true,
@@ -446,10 +500,20 @@ export async function intentarComando(
   // terminaba tratada como el mensaje de un cliente molesto — ver VERBOS_ENSENANZA.
   if (!limpio.startsWith("/")) {
     const ensenanza = RE_ENSENANZA.exec(sinTildes(limpio));
-    if (ensenanza && (await puedeCorregir(canal, externalId))) {
+    // [2026-09-18] Si no coincidió exacto, se mira si la primera palabra QUISO ser uno de esos
+    // verbos ("apreder" por "aprender"): ver seParecemA y el bug que lo motivó.
+    const primeraPalabra = sinTildes(limpio).split(/[\s:,.\-–—¡!¿?]+/)[0] ?? "";
+    const pareceEnsenanza = !ensenanza && seParecemA(primeraPalabra, VERBOS_ENSENANZA);
+
+    if ((ensenanza || pareceEnsenanza) && (await puedeCorregir(canal, externalId))) {
       // Se reescribe como el comando equivalente y sigue por el camino de siempre: así hay UNA
       // sola implementación de "enseñar una regla", no dos que se puedan desincronizar.
-      limpio = `/corrige ${limpio.slice(ensenanza[0].length).trim()}`;
+      const largo = ensenanza ? ensenanza[0].length : primeraPalabra.length;
+      const regla = limpio.slice(largo).replace(/^[\s:,.\-–—¡!¿?]+/, "").trim();
+      if (pareceEnsenanza) {
+        console.log(`[comandos] ${canal}:${externalId}: "${primeraPalabra}" se tomó como "aprende" (typo tolerado).`);
+      }
+      limpio = `/corrige ${regla}`;
     } else {
       return await intentarReporteDeFalla(canal, externalId, limpio, medio);
     }
@@ -472,7 +536,26 @@ export async function intentarComando(
     ...COMANDOS_RESUELTO,
     ...COMANDOS_RESET,
   ].includes(comando);
-  if (!conocido) return { manejado: false };
+  if (!conocido) {
+    // [2026-09-18] Un comando que no existe, escrito por alguien del equipo, NO puede seguir de
+    // largo como si fuera el mensaje de un cliente: el bot le contestaría con simpatía y la
+    // persona se queda creyendo que le enseñó algo o que reportó algo. Le pasó a Daniel dos días
+    // seguidos. A un cliente cualquiera que escriba un "/algo" sí se le sigue contestando normal.
+    if (await puedeCorregir(canal, externalId)) {
+      return {
+        manejado: true,
+        etiquetaParaLog: `comando desconocido "${comando}" de un número del equipo`,
+        respuesta:
+          `No conozco el comando *${comando}* 🤔 Los que sí:\n\n` +
+          "• `/corrige <regla>` — te la aprendo y la aplico con todos los clientes (también vale *aprende ...* sin barra).\n" +
+          "• `corrige <qué salió mal>` — SIN barra: queda como ticket para el equipo técnico.\n" +
+          "• `/correcciones` — las que ya me enseñaste. `/borra <número>` para desactivar una.\n" +
+          "• `/reset` — borro todo lo de este número para probar desde ceros.\n" +
+          "• `/ayuda` — la lista completa.",
+      };
+    }
+    return { manejado: false };
+  }
 
   // Atajo: /soy usuario clave (mismo cuidado, no se loguea la clave)
   if (COMANDOS_LOGIN.includes(comando)) {

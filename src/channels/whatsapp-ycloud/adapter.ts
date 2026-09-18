@@ -26,9 +26,46 @@ function extraerMediaLink(media: Record<string, unknown> | undefined): string | 
   return (media.link ?? media.url ?? media.mediaUrl ?? media.downloadUrl) as string | undefined;
 }
 
+/**
+ * [2026-09-18] Números de SIMULACRO: prefijos que el bot atiende normal pero a los que NUNCA les
+ * manda un WhatsApp de verdad. Se configura con `SIMULACRO_PREFIJOS` en el .env (lista separada
+ * por comas, en dígitos y sin "+": `SIMULACRO_PREFIJOS=5730009,5730008`).
+ *
+ * Para qué: poder correr una simulación de varios clientes a la vez contra el bot YA DESPLEGADO,
+ * sin que salga un solo mensaje al mundo real. Sin esto, un simulacro contra la nube le mandaría
+ * WhatsApps desde el número del negocio a cada número inventado — y los inventados caen en
+ * prefijos reales de Colombia (300, 310, 320...), así que le pueden llegar a personas de verdad.
+ *
+ * Es una lista vacía por defecto: si nadie la configura, el bot se comporta exactamente como
+ * siempre. Y vive acá, en el ÚNICO punto por donde sale un mensaje de WhatsApp, y no en el
+ * pipeline: así no hay forma de rodearlo por otro camino (video, imagen, catálogo o texto).
+ */
+function prefijosDeSimulacro(): string[] {
+  return (process.env.SIMULACRO_PREFIJOS ?? "")
+    .split(",")
+    .map((p) => p.replace(/\D/g, ""))
+    .filter((p) => p.length >= 6); // un prefijo muy corto taparía números reales sin querer
+}
+
+export function esNumeroDeSimulacro(to: string): boolean {
+  const digitos = (to ?? "").replace(/\D/g, "");
+  if (!digitos) return false;
+  return prefijosDeSimulacro().some((p) => digitos.startsWith(p));
+}
+
 export const whatsappYcloudAdapter: ChannelAdapter = {
   name: "whatsapp",
   async send(msg: OutboundMessage) {
+    // El candado va ANTES que cualquier rama de envío, a propósito (ver esNumeroDeSimulacro).
+    if (esNumeroDeSimulacro(msg.to)) {
+      const que = msg.catalogo ? "catálogo" : msg.videoUrl ? "video" : msg.imageUrl ? "imagen" : "texto";
+      console.log(
+        `[simulacro] NO se manda el ${que} a ${msg.to} (número de simulacro): ` +
+          `${(msg.text ?? "").replace(/\s+/g, " ").slice(0, 120)}`
+      );
+      return;
+    }
+
     if (msg.catalogo) {
       await sendMultiProductMessage(msg.to, msg.catalogo.body, msg.catalogo.secciones, {
         header: msg.catalogo.header,

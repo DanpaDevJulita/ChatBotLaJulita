@@ -59,25 +59,28 @@ export const consultarPoliticasTool: ToolDefinition = {
   // El texto sale EXACTO: son condiciones comerciales, no material para redactar.
   permitirRedaccion: false,
   description:
-    "Las políticas oficiales de La Julita, en el texto exacto del glamping. Llámala SIEMPRE que el cliente pregunte por reembolsos, cancelaciones, cambios o reprogramación de fecha, qué pasa si no puede venir, si puede ceder su reserva, horarios de check-in/check-out, hora extra, uso del jacuzzi, la fogata, mascotas, parlantes, ruido, menores de edad, o si pide los términos y condiciones. Usa tema='reservas' para lo de reembolsos y cambios de fecha, tema='estadia' para horarios, jacuzzi, fogata y normas de convivencia, y tema='todo' si pide las condiciones completas. NUNCA cuentes estas políticas de memoria ni las reformules: plazos y montos tienen que salir de acá tal cual.",
+    "Las políticas oficiales de La Julita, en el texto exacto del glamping. Llámala SIEMPRE que el cliente pregunte por reembolsos, cancelaciones, cambios o reprogramación de fecha, qué pasa si no puede venir, si puede ceder su reserva, horarios de check-in/check-out, hora extra, uso del jacuzzi, la fogata, mascotas, parlantes, ruido, menores de edad, si pide los términos y condiciones, o si pregunta si puede PAGAR EN EL SITIO / al llegar / en efectivo allá. Usa tema='reservas' para lo de reembolsos y cambios de fecha, tema='estadia' para horarios, jacuzzi, fogata y normas de convivencia, tema='pago_en_sitio' para pagar en el glamping, y tema='todo' si pide las condiciones completas. NUNCA cuentes estas políticas de memoria ni las reformules: plazos y montos tienen que salir de acá tal cual.",
   parameters: {
     type: "object",
     properties: {
       tema: {
         type: "string",
-        enum: ["reservas", "estadia", "todo"],
+        enum: ["reservas", "estadia", "pago_en_sitio", "todo"],
         description:
-          "'reservas' = términos y condiciones de la reserva (reembolsos, reprogramación, ceder la reserva, cambios de fecha con su valor adicional). 'estadia' = información antes de reservar (check-in/check-out y hora extra, restaurante, jacuzzi, fogata, restricciones y normas de convivencia). 'todo' = las dos cosas.",
+          "'reservas' = términos y condiciones de la reserva (reembolsos, reprogramación, ceder la reserva, cambios de fecha con su valor adicional). 'estadia' = información antes de reservar (check-in/check-out y hora extra, restaurante, jacuzzi, fogata, restricciones y normas de convivencia). 'pago_en_sitio' = si puede pagar en el glamping al llegar y con cuánta anticipación. 'todo' = los términos y la información de la estadía.",
       },
     },
     required: ["tema"],
   },
   handler: async (args: { tema?: string }): Promise<ToolResult> => {
-    const tema = args?.tema === "estadia" || args?.tema === "todo" ? args.tema : "reservas";
+    const temasValidos = ["estadia", "pago_en_sitio", "todo"];
+    const tema = temasValidos.includes(args?.tema ?? "") ? (args!.tema as string) : "reservas";
 
     const texto =
       tema === "estadia"
         ? await politica("antes_de_reservar")
+        : tema === "pago_en_sitio"
+          ? await politica("pago_en_sitio")
         : tema === "todo"
           ? await politicasUnidas(["terminos_reserva", "antes_de_reservar"], "\n\n")
           : await politica("terminos_reserva");

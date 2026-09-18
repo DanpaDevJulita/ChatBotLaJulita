@@ -125,6 +125,36 @@ const CASOS: Caso[] = [
     },
   },
   {
+    nombre: "P1b. tema='pago_en_sitio' responde si puede pagar al llegar (ticket #15)",
+    detalle:
+      "Antes no existía esta respuesta: el cliente preguntaba '¿puedo pagar en el sitio?' y el bot " +
+      "derivaba al equipo (pasó de verdad el 2026-09-18 y abrió el ticket #14).",
+    correr: async () => {
+      const fallas: string[] = [];
+      const PAGO_SITIO = [
+        "💵 *Pagar en el glamping*",
+        "",
+        "Se recibe al menos un día antes, nunca el mismo día de la estadía.",
+      ].join("\n");
+      sembrarPoliticas([
+        { clave: "terminos_reserva", contenido: TERMINOS },
+        { clave: "pago_en_sitio", contenido: PAGO_SITIO },
+      ]);
+
+      const r = await consultarPoliticasTool.handler({ tema: "pago_en_sitio" }, CTX);
+      if (r.reply_to_user !== PAGO_SITIO) {
+        fallas.push(`no devolvió el texto de pago en sitio tal cual. Devolvió: ${JSON.stringify(r.reply_to_user)}`);
+      }
+
+      // Y no puede contestar lo de siempre: si cae en `terminos_reserva`, el cliente recibe las
+      // condiciones de reembolso como si fueran la respuesta a otra pregunta.
+      if (r.reply_to_user === TERMINOS) {
+        fallas.push("contestó los términos de reserva en vez de la política de pago en el sitio");
+      }
+      return fallas;
+    },
+  },
+  {
     nombre: "P2. Sin políticas cargadas: deriva al equipo, no se las inventa",
     detalle: "Si nadie corrió el .sql, el bot tiene que decir que lo confirma — jamás improvisar una condición.",
     correr: async () => {

@@ -92,7 +92,7 @@ interface ResultadoEscenario {
   duracionMs: number;
 }
 
-interface EscenarioFijo {
+export interface EscenarioFijo {
   tipo: "fijo";
   id: string;
   nombre: string;
@@ -117,7 +117,7 @@ type Escenario = EscenarioFijo | EscenarioDinamico;
 // los incidentes/casos límite ya documentados en el repo.
 // ------------------------------------------------------------------------------------------
 
-const FIJOS: EscenarioFijo[] = [
+export const FIJOS: EscenarioFijo[] = [
   {
     tipo: "fijo",
     id: "F01",
@@ -843,7 +843,14 @@ async function main() {
   console.log(`========================================\n`);
 }
 
-main().catch((err) => {
-  console.error("Fallo general del script de simulación:", err);
-  process.exit(1);
-});
+// [2026-09-18] Solo arranca si este archivo ES el que se ejecutó. Antes corría siempre, con lo
+// cual importarlo desde otro script (para reusar sus escenarios, ver scripts/simulacro-nube.ts)
+// habría disparado la simulación entera sin que nadie la pidiera — y esta gasta créditos de
+// OpenRouter y escribe en la base real.
+const archivoEjecutado = (process.argv[1] ?? "").replace(/[\/]+/g, "/").split("/").pop() ?? "";
+if (archivoEjecutado === "simulacion-kommo.ts") {
+  main().catch((err) => {
+    console.error("Fallo general del script de simulación:", err);
+    process.exit(1);
+  });
+}

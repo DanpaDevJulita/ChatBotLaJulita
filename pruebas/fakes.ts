@@ -203,19 +203,43 @@ class Escritura {
   constructor(private tabla: string, private filas: Fila[], private esUpsert = false) {}
   select() { return this; }
   eq() { return this; }
-  async single() { return { data: this.filas[0] ?? null, error: null }; }
-  then(ok: (r: any) => any) {
+
+  /**
+   * Guarda de verdad en la tabla falsa. Devuelve las filas ya escritas (con su id), para que
+   * quien haga `.select().single()` reciba lo mismo que le devolvería PostgREST.
+   *
+   * [2026-09-18] Antes esto vivía SOLO dentro de `then`, así que una escritura terminada en
+   * `.select().single()` — la forma que usa `agregarCorreccion`, entre otras — devolvía la fila
+   * pero NO la guardaba: `then` nunca corre cuando se await-ea `single()`. Una prueba que
+   * enseñaba una regla y después miraba la tabla veía cero filas, aunque el código de producción
+   * estuviera bien. Lo encontró `e2e-ensenanzas-y-typos.ts`.
+   */
+  private escribir(): Fila[] {
     const destino = (TABLAS[this.tabla] ??= []);
     const claves = this.esUpsert ? CLAVES_UPSERT[this.tabla] : null;
+    const guardadas: Fila[] = [];
     for (const f of this.filas) {
       const existente = claves ? destino.find((d) => claves.every((c) => d[c] === f[c])) : undefined;
       if (existente) {
         Object.assign(existente, f);
+        guardadas.push(existente);
       } else {
-        destino.push({ ...f, created_at: f.created_at ?? new Date().toISOString() });
+        const nueva = { id: f.id ?? destino.length + 1, ...f, created_at: f.created_at ?? new Date().toISOString() };
+        destino.push(nueva);
+        guardadas.push(nueva);
       }
     }
-    return Promise.resolve(ok({ data: this.filas, error: null }));
+    return guardadas;
+  }
+
+  async single() {
+    const guardadas = this.escribir();
+    return { data: guardadas[0] ?? null, error: null };
+  }
+
+  then(ok: (r: any) => any) {
+    const guardadas = this.escribir();
+    return Promise.resolve(ok({ data: guardadas, error: null }));
   }
 }
 
