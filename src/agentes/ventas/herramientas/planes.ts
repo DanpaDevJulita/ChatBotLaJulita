@@ -122,6 +122,111 @@ function resolverPreciosEnDescripcion(texto: string, p: Plan): string {
     .trim();
 }
 
+// ---- La lista de "Incluye": emojis y separación resumen / detalle --------------------------
+
+/**
+ * [2026-09-18] Un emoji para cada cosa que incluye el plan. Lo pidió Daniel viendo una captura
+ * real: al cliente le llegó la lista del PLAN CLÁSICO VIP como veinte viñetas de texto pelado,
+ * y una lista así no se lee — se salta.
+ *
+ * Por qué se resuelve acá y no cargando los emojis a mano en la descripción de cada plan: son 20
+ * planes que repiten casi los mismos ítems (jacuzzi, desayuno, fogata...), así que a mano serían
+ * 20 ediciones que hay que rehacer cada vez que alguien agrega un plan nuevo, y con el riesgo de
+ * que el mismo ítem quede con un emoji distinto según el plan. Esto es presentación, no dato: no
+ * cambia ni una palabra de lo que escribió el equipo, solo le pone un ícono adelante.
+ *
+ * El orden importa: gana la PRIMERA que coincida, así que lo específico va antes que lo general
+ * ("kit de malvaviscos" antes que "fogata", "spa básico en pareja" antes que "masaje").
+ */
+const EMOJIS_DE_ITEM: [RegExp, string][] = [
+  // Frases completas primero: "Servicio a la habitación" trae la palabra "habitación", que sola
+  // caería en el 🏕️ del alojamiento; "Spa básico ... hidromasaje" caería en el 🛁 del jacuzzi; y
+  // "Decoración premium ... corazones en la cama" caería en el 🛏️ de la cama. Los tres se vieron
+  // mal asignados la primera vez que se corrió esto.
+  [/servicio a la habitaci[oó]n/i, "🛎️"],
+  [/juegos de mesa/i, "🎲"],
+  [/decoraci[oó]n|globo|aviso metalizado|coraz[oó]n|corazones/i, "🎈"],
+  [/picnic|canasta/i, "🧺"],
+  [/spa|masaje|exfoliaci[oó]n|aromaterapia|musicoterapia/i, "💆"],
+  [/turco|sauna/i, "♨️"],
+  [/cinema|\bcine\b|pel[ií]cula/i, "🎬"],
+  [/video|foto|recuerdo/i, "🎥"],
+  [/malvavisco|fogata/i, "🔥"],
+  [/jacuzzi|hidromasaje/i, "🛁"],
+  [/bienvenida/i, "🤗"],
+  [/desayuno/i, "🍳"],
+  [/cena|plato fuerte|platos fuertes/i, "🍽️"],
+  [/entrada|empanada|salchipapa|papa a la francesa/i, "🍟"],
+  [/coctel|c[oó]ctel|trago|bebida/i, "🍸"],
+  [/minibar|nevera/i, "🧊"],
+  [/cama|queen|sof[aá]/i, "🛏️"],
+  [/ba[ñn]o|ducha/i, "🚿"],
+  [/domo|glamping|habitaci[oó]n|chalet/i, "🏕️"],
+  [/malla|catamar[aá]n/i, "🪢"],
+  [/parlante|bluetooth|m[uú]sica/i, "🔊"],
+  [/parqueadero/i, "🅿️"],
+  // `\br[ií]o\b` con bordes de palabra a propósito: sin ellos, "posterior" contiene "rio" y
+  // "Video recuerdo (se envía editado 3-5 días posterior a la toma)" se llevaba el 🏞️ del paisaje.
+  [/quebrada|\br[ií]o\b|naturaleza|sendero|selv[aá]tic/i, "🏞️"],
+  [/ventilador|aire/i, "🌬️"],
+  [/mascota|perro/i, "🐾"],
+  [/transporte|traslado/i, "🚐"],
+  [/wifi|internet/i, "📶"],
+];
+
+/**
+ * Lo que el equipo ya adornó no se toca. La viñeta se busca solo al principio; el emoji, en
+ * CUALQUIER parte de la línea — "Fogata y kit de malvaviscos 🍡" ya trae el suyo al final, y
+ * mirando solo el principio quedaba con dos emojis, uno en cada punta.
+ */
+const YA_TIENE_ADORNO = /^\s*[•·\-*]|[\p{Extended_Pictographic}]/u;
+
+/**
+ * Le pone su emoji a una línea de la lista. Si no coincide con ninguna categoría conocida cae a
+ * "✨" en vez de quedarse sin nada: una lista donde solo la mitad de los renglones tiene ícono se
+ * ve peor que una sin ninguno.
+ */
+function conEmoji(linea: string): string {
+  const texto = linea.trim();
+  if (!texto) return texto;
+  if (YA_TIENE_ADORNO.test(texto)) return texto;
+  const par = EMOJIS_DE_ITEM.find(([re]) => re.test(texto));
+  return `${par ? par[1] : "✨"} ${texto}`;
+}
+
+/**
+ * [2026-09-18] Parte la descripción cargada en el panel en sus tres pedazos, para poder mandar el
+ * RESUMEN sin la lista entera y el DETALLE con ella (ver el parámetro `describir`).
+ *
+ * No se inventa ninguna estructura nueva: las descripciones que el equipo ya cargó siguen todas el
+ * mismo molde — un encabezado, la palabra "Incluye:", la lista, y al final las notas y los
+ * horarios. Si alguna no lo sigue (no dice "Incluye:"), `items` vuelve vacío y todo el texto queda
+ * como `notas`, así que el plan igual se muestra completo: nunca se pierde nada de lo cargado.
+ */
+function partirDescripcion(descripcion: string): { encabezado: string; items: string[]; notas: string } {
+  const lineas = limpiar(descripcion).split("\n");
+  const iIncluye = lineas.findIndex((l) => /^\s*incluye\s*:?\s*$/i.test(l));
+  if (iIncluye === -1) return { encabezado: "", items: [], notas: limpiar(descripcion) };
+
+  const items: string[] = [];
+  let i = iIncluye + 1;
+  for (; i < lineas.length; i++) {
+    const l = lineas[i].trim();
+    // La lista termina en la primera línea en blanco después de haber empezado a juntar ítems.
+    if (!l) {
+      if (items.length > 0) break;
+      continue;
+    }
+    items.push(l);
+  }
+
+  return {
+    encabezado: lineas.slice(0, iIncluye).join("\n").trim(),
+    items,
+    notas: lineas.slice(i).join("\n").replace(/\n{3,}/g, "\n\n").trim(),
+  };
+}
+
 /**
  * Precios de un plan, saltando los que no aplican. OJO: en la tabla `planes` un precio que
  * no aplica está cargado como 0 (por ejemplo, un pasadía de domingo no tiene tarifa de
@@ -650,6 +755,11 @@ export const consultarPlanesTool: ToolDefinition = {
         description:
           "Nombre (o parte del nombre) de UN plan del que el cliente quiere el detalle completo, por ejemplo 'paraiso' o 'familiar 3'.",
       },
+      describir: {
+        type: "boolean",
+        description:
+          "Solo junto con `plan`. Sin esto devuelve el RESUMEN del plan (nombre, precio, horarios, cupo) con su video y cierra preguntando '¿Te describo este plan?'. Con `describir: true` devuelve además la lista completa de todo lo que incluye — llámalo así SOLO cuando el cliente conteste que sí a esa pregunta, o pida saber qué trae.",
+      },
     },
     required: [],
   },
@@ -666,6 +776,7 @@ export const consultarPlanesTool: ToolDefinition = {
       tipo?: TipoPlan;
       pagina?: number;
       plan?: string;
+      describir?: boolean;
     },
     ctx: ToolContext
   ) => {
@@ -727,7 +838,18 @@ export const consultarPlanesTool: ToolDefinition = {
         const precio = tarifa ? precioPara(p, tarifa) : null;
         const lineaPrecio =
           precio != null ? `${formatMoney(precio)} ${ETIQUETA_TARIFA[tarifa as Tarifa]}` : preciosDe(p);
-        const detalle = limpiar(p.descripcion); // ya viene limpio de precios viejos (ver arriba)
+        // [2026-09-18] La descripción se parte en encabezado / lista de "Incluye" / notas finales
+        // (ver partirDescripcion). El RESUMEN no lleva la lista; el DETALLE sí, con un emoji por
+        // ítem. Hasta hoy los dos mandaban la descripción entera: `describir` ni siquiera existía
+        // como parámetro, aunque el prompt lleva desde el 2026-09-14 diciéndole al modelo que lo
+        // use. O sea que "¿Te describo este plan?" y el "sí" del cliente devolvían exactamente lo
+        // mismo, y el cliente veía dos veces la misma pared de texto.
+        const { items, notas } = partirDescripcion(p.descripcion ?? "");
+        const quiereDetalle = args?.describir === true;
+        const listaIncluye = items.length > 0 ? `Incluye:\n${items.map(conEmoji).join("\n")}` : "";
+        const cuerpo = quiereDetalle
+          ? [listaIncluye, notas].filter(Boolean).join("\n\n")
+          : notas; // el resumen se queda con las notas (horarios, extras), sin la lista entera
         const cupo = cupoParaPlan(p, cat, disponibilidad);
         const lineaCupo =
           cupo === true ? "\n\n✅ Para esa fecha SÍ tengo cupo." : cupo === false ? "\n\n❌ Para esa fecha no me queda cupo — te muestro otra opción o fecha si quieres." : "";
@@ -747,13 +869,25 @@ export const consultarPlanesTool: ToolDefinition = {
         const nativoUrl = link && !esYoutube ? link : undefined;
         const videoNativo = nativoUrl && !esImagen ? nativoUrl : undefined;
         const imagenNativa = nativoUrl && esImagen ? nativoUrl : undefined;
+        // La pregunta de cierre la arma la herramienta, no el modelo: es la que encadena el
+        // resumen con el detalle ("¿Te describo este plan?" → el cliente dice que sí → se vuelve
+        // a llamar con describir: true).
+        const cierre = quiereDetalle ? "\n\n¿Te gustaría tomar este plan? 💚" : "\n\n¿Te describo este plan? 💚";
         const texto =
           `*${limpiar(p.nombre)}*${personas}\n💰 ${lineaPrecio}` +
-          `${detalle ? `\n\n${detalle}` : ""}${lineaCupo}` +
-          `${link && esYoutube ? `\n\n📹 Video: ${linkVideoLimpio(link)}` : ""}`;
+          `${cuerpo ? `\n\n${cuerpo}` : ""}${lineaCupo}` +
+          `${link && esYoutube ? `\n\n📹 Video: ${linkVideoLimpio(link)}` : ""}` +
+          cierre;
         return {
           result: { ...p, cupo: cupo ?? null },
           reply_to_user: texto,
+          // [2026-09-18] LITERAL. Este texto es el que Daniel vio llegar reescrito por el modelo:
+          // la lista de "Incluye" convertida en viñetas de texto pelado, sin emojis, y con `**`
+          // (que WhatsApp muestra tal cual y el prompt base prohíbe expresamente). La bandera ya
+          // existía y runTurn.ts ya la respetaba — simplemente nunca se seteó acá. Ver el
+          // comentario de ToolResult.forzarTextoLiteral en core/tools/types.ts: cuando el texto
+          // importa línea por línea, la única garantía real es no pasarlo por el modelo.
+          forzarTextoLiteral: true,
           ...(videoNativo ? { videoUrl: videoNativo } : {}),
           ...(imagenNativa ? { imageUrl: imagenNativa } : {}),
         };
