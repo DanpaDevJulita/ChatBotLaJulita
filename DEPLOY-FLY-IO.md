@@ -143,43 +143,93 @@ https://botlajulita.fly.dev/webhooks/bold
 
 ---
 
-## Monitoreo y debugging
+## Operación diaria
 
-**Ver logs en tiempo real:**
+### Desplegar un cambio de código
+
 ```bash
-flyctl logs -f
+flyctl deploy --app botlajulita --remote-only
 ```
 
-**Ver configuración actual:**
+**Lo más importante de entender: Fly despliega lo que hay en tu CARPETA, no lo que hay en git.**
+No es como Vercel o Railway, que construyen desde un push al repositorio. Consecuencias:
+
+- Un archivo modificado y sin commitear **se despliega igual**. No hay red de seguridad.
+- Un commit y un `git push` **no despliegan nada** por sí solos.
+- Si alguien más cambió algo en el repo, `git pull` ANTES de desplegar, o lo pisás con tu copia.
+
+Por eso conviene el hábito de commitear primero y desplegar después: así lo que corre en
+producción siempre coincide con algún commit y se puede volver atrás.
+
+`--remote-only` construye la imagen en los servidores de Fly. Sin ese flag intenta usar un Docker
+local, que en esta máquina no está instalado.
+
+**Volver a una versión anterior** si un despliegue salió mal:
+
 ```bash
-flyctl config show
+flyctl releases --app botlajulita
+flyctl deploy --app botlajulita --image registry.fly.io/botlajulita:deployment-XXXXX
 ```
 
-**Redeploy sin cambios (reiniciar procesos):**
+### Ver los logs
+
+Todo junto, en vivo:
+
 ```bash
-flyctl deploy --strategy immediate
+flyctl logs --app botlajulita
 ```
 
-**Escalar recursos:**
+**Solo el worker** (que es donde pasa lo interesante: los turnos del bot, las llamadas a LobbyPMS,
+los recontactos):
+
 ```bash
-flyctl scale memory 512  # RAM
-flyctl scale vm shared-cpu-1x  # CPU
+flyctl logs --app botlajulita -s
+```
+
+El `-s` abre una lista para elegir la máquina. Es mejor que pasar el ID a mano con `-m`, porque
+**el ID cambia cada vez que la máquina se recrea** — hoy el worker es `1857319a5d4248`, pero
+después de un redespliegue puede ser otro.
+
+Otros filtros útiles:
+
+| Flag | Para qué |
+|---|---|
+| `-n` / `--no-tail` | Traer lo que hay en el buffer y salir, en vez de quedarse escuchando |
+| `-m <id>` | Una máquina puntual |
+| `-j` / `--json` | Salida JSON, para filtrar con otras herramientas |
+
+### Dónde están guardados los logs (y por cuánto tiempo)
+
+Esto conviene saberlo antes de necesitarlo:
+
+**No hay ningún archivo de log.** Fly no guarda un `error.log` ni nada parecido, ni dentro de la
+máquina ni fuera. Lo que hace es capturar el *stdout* de los procesos: todo lo que el bot imprime
+—`console.log` y `console.error` por igual— sale por el mismo canal. Fly no distingue entre
+"logs" y "logs de error"; esa separación no existe acá.
+
+Ese flujo se va a un buffer en vivo (lo que ves con `fly logs`) y a un buscador:
+
+**Búsqueda hasta 7 días** — en el panel de la app, botón *"Search logs in Grafana"*:
+
+  https://fly.io/apps/botlajulita/monitoring
+
+Está montado sobre VictoriaLogs y se consulta con LogsQL. Hoy es beta y es gratis.
+
+> **⚠️ A los 7 días los logs desaparecen y no se recuperan.** Si el bot falla un martes y nadie
+> mira hasta el miércoles siguiente, no queda rastro. Para conservarlos más tiempo hay que
+> exportarlos a un servicio externo con la app *Fly Log Shipper*. Vale la pena el día que el bot
+> maneje plata de clientes reales sin que nadie lo esté mirando.
+
+### Escalar
+
+```bash
+flyctl scale count worker=2 --app botlajulita   # más workers si la cola se acumula
+flyctl scale memory 1024 --app botlajulita      # más RAM
+flyctl status --app botlajulita                 # ver qué hay corriendo
 ```
 
 ---
 
-## Actualizar después de cambios en código
-
-```bash
-git add .
-git commit -m "cambios"
-git push
-
-# En Fly.io:
-flyctl deploy
-```
-
----
 
 ## Costo real (verificado en la tabla de precios de Fly, 2026-09-18)
 
